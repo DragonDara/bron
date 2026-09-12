@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { t } from '../i18n';
+import { getActiveLanguage, t } from '../i18n';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Command,
@@ -9,6 +9,7 @@ import {
   LogOut,
   RefreshCw,
   Lock,
+  Languages,
 } from 'lucide-react';
 import { Button, Input } from '@ury/ui';
 import { useRootStore } from '../store/root-store';
@@ -21,11 +22,13 @@ const Header = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const user = useRootStore((state: RootState) => state.user);
+  const pinLoginAvailable = useRootStore((state: RootState) => state.pinLoginAvailable);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
-  const { searchQuery, setSearchQuery, setShowVoluntaryClosing } = usePOSStore();
+  const { searchQuery, setSearchQuery, setShowVoluntaryClosing, activeOrders } = usePOSStore();
   const { orderSearchQuery, setOrderSearchQuery } = useRootStore();
   const [orderSearchInput, setOrderSearchInput] = useState(orderSearchQuery);
+  const activeLanguage = getActiveLanguage();
 
   // Determine placeholder and handlers based on route
   let searchPlaceholder = t('header.search_placeholder_default');
@@ -89,10 +92,36 @@ const Header = () => {
   const handleLogout = async () => {
     try {
       await logout();
+      sessionStorage.clear();
       window.location.href = '/login?redirect-to=%2Fpos';
-    } catch (error) {
+    } catch {
       showToast.error(t('errors.failed_logout'));
     }
+  };
+
+  const handleLockPOS = async () => {
+    if (activeOrders.length > 0) {
+      setShowUserMenu(false);
+      showToast.warning(t('pin_login.active_order_lock'));
+      return;
+    }
+
+    try {
+      await logout();
+      // Cached profiles and permissions belong to the previous operator.
+      sessionStorage.clear();
+      window.location.href = '/pos';
+    } catch {
+      showToast.error(t('errors.failed_logout'));
+    }
+  };
+
+  const handleLanguageChange = (language: 'en' | 'ru' | 'kk') => {
+    setShowUserMenu(false);
+    if (language === activeLanguage) return;
+
+    localStorage.setItem('ury_language', language);
+    window.location.reload();
   };
 
   const handleClearCache = () => {
@@ -165,7 +194,52 @@ const Header = () => {
                   <p className="text-sm font-medium text-gray-900">{user?.full_name || 'User'}</p>
                   <p className="text-sm text-gray-500">{user?.name || ''}</p>
                 </div>
+                <div className="p-3 border-b border-gray-200">
+                  <div className="flex items-center gap-2 px-1 text-xs font-medium text-gray-500">
+                    <Languages className="w-4 h-4" />
+                    <span>{t('header.language')}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={activeLanguage === 'en' ? 'default' : 'outline'}
+                      aria-pressed={activeLanguage === 'en'}
+                      onClick={() => handleLanguageChange('en')}
+                    >
+                      {t('header.english')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={activeLanguage === 'ru' ? 'default' : 'outline'}
+                      aria-pressed={activeLanguage === 'ru'}
+                      onClick={() => handleLanguageChange('ru')}
+                    >
+                      {t('header.russian')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant={activeLanguage === 'kk' ? 'default' : 'outline'}
+                      aria-pressed={activeLanguage === 'kk'}
+                      onClick={() => handleLanguageChange('kk')}
+                    >
+                      {t('header.kazakh')}
+                    </Button>
+                  </div>
+                </div>
                 <div className="py-2">
+                  {pinLoginAvailable && (
+                    <Button
+                      variant="ghost"
+                      className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                      onClick={handleLockPOS}
+                    >
+                      <Lock className="w-4 h-4 me-3" />
+                      {t('header.lock_pos')}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
@@ -220,4 +294,4 @@ const Header = () => {
   );
 };
 
-export default Header; 
+export default Header;

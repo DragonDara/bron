@@ -34,6 +34,18 @@
     "close_shift": "Clôturer la session",
     "switch_to_desk": "Accéder au bureau"
   },
+  "pin_login": {
+    "title": "Saisissez votre code PIN",
+    "subtitle": "Utilisez votre code PIN personnel pour ouvrir une session de caisse sécurisée.",
+    "pin_progress": "{{count}} chiffres du code PIN saisis",
+    "delete_digit": "Effacer le dernier chiffre",
+    "sign_in": "Se connecter",
+    "invalid_pin": "Le code PIN est incorrect ou désactivé. Réessayez.",
+    "too_many_attempts": "Trop de tentatives. Attendez une minute puis réessayez.",
+    "use_password": "Se connecter avec l’e-mail et le mot de passe",
+    "manager_hint": "Un responsable peut activer ou désactiver l’accès par PIN pour chaque compte PDV.",
+    "active_order_lock": "Terminez ou videz la commande en cours avant de changer d’utilisateur."
+  },
   "menu": {
     "special_items": "Plats spéciaux"
   },
@@ -163,6 +175,7 @@
     "please_print_first": "Veuillez imprimer la facture avant d'effectuer le paiement",
     "enter_cancel_reason": "Veuillez entrer un motif d'annulation.",
     "dine_in_restricted": "La consommation sur place n'est pas disponible pour votre rôle",
+    "payment_failed": "Le paiement n'a pas pu être effectué. Veuillez réessayer.",
     "order_modified": "Cette commande a été modifiée. Veuillez recharger la page pour récupérer les dernières modifications.",
     "order_sync_failed": "Impossible de synchroniser cette commande. Veuillez recharger la page et réessayer.",
     "posOpening": {
@@ -262,6 +275,7 @@
     "transfer_captain": "Transférer le capitaine",
     "select_destination_table": "Déplacer la commande de {{table}} vers toute table libre de l'établissement",
     "search_transfer_placeholder": "Rechercher par table ou salle",
+    "search_table_placeholder": "Rechercher une table",
     "current_table": "Table actuelle",
     "current_captain": "Capitaine actuel",
     "select_new_captain": "Choisir un nouveau capitaine pour cette commande",

@@ -390,11 +390,11 @@ def validate_customer(doc, method):
 def calculate_and_set_times(doc, method):
     doc.arrived_time = doc.creation
 
-    current_time_str = now()
+    current_time = now_datetime()
     
-    current_time = datetime.strptime(current_time_str, "%Y-%m-%d %H:%M:%S.%f")
+    creation_time = get_datetime(doc.creation)
     
-    time_difference = current_time - doc.creation
+    time_difference = current_time - creation_time
     
     total_seconds = int(time_difference.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
