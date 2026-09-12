@@ -5,6 +5,7 @@ import { Spinner } from '@ury/ui';
 import { RefreshCw } from 'lucide-react';
 import { t } from '../i18n'
 import PinLoginScreen from './PinLoginScreen';
+import TerminalEnrollmentScreen from './TerminalEnrollmentScreen';
 
 interface Props {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ const AuthGuard: React.FC<Props> = ({ children }) => {
     hasAccess,
     allowedRoles,
     requiresPinLogin,
+    requiresTerminalEnrollment,
     pinMinLength,
     pinMaxLength,
   } = useRootStore();
@@ -49,6 +51,10 @@ const AuthGuard: React.FC<Props> = ({ children }) => {
         <Spinner  message={t('common.loading')} />
       </div>
     );
+  }
+
+  if (requiresTerminalEnrollment) {
+    return <TerminalEnrollmentScreen />;
   }
 
   if (requiresPinLogin) {

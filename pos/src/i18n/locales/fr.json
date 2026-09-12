@@ -45,6 +45,17 @@
     "manager_hint": "Un responsable peut activer ou désactiver l’accès par PIN pour chaque compte PDV.",
     "active_order_lock": "Terminez ou videz la commande en cours avant de changer d’utilisateur."
   },
+  "terminal_enroll": {
+    "title": "Enregistrer ce terminal",
+    "subtitle": "Saisissez l’identifiant du terminal et le code à usage unique fourni par votre responsable pour associer cet appareil.",
+    "terminal_id": "Identifiant du terminal",
+    "code": "Code d’enregistrement à usage unique",
+    "enroll": "Enregistrer le terminal",
+    "enrolling": "Enregistrement…",
+    "failed": "Échec de l’enregistrement. Vérifiez l’identifiant et le code, puis demandez un nouveau code à un responsable.",
+    "too_many_attempts": "Trop de tentatives. Patientez un instant puis réessayez.",
+    "manager_hint": "Un responsable crée le terminal dans Desk et génère un code d’enregistrement à durée limitée."
+  },
   "menu": {
     "special_items": "Plats spéciaux"
   },

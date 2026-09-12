@@ -14,6 +14,7 @@ export interface AuthState {
   error: string | null;
   pinLoginAvailable: boolean;
   requiresPinLogin: boolean;
+  requiresTerminalEnrollment: boolean;
   pinMinLength: number;
   pinMaxLength: number;
 }
@@ -32,6 +33,7 @@ const initialState: AuthState = {
   error: null,
   pinLoginAvailable: false,
   requiresPinLogin: false,
+  requiresTerminalEnrollment: false,
   pinMinLength: 4,
   pinMaxLength: 6,
 };
@@ -52,12 +54,25 @@ export const createAuthSlice: StateCreator<AuthSlice> = (set) => ({
 
       // The guest-safe status endpoint exposes only a boolean and avoids the
       // expected 403 from Frappe's authenticated-user endpoint on the keypad.
+      if (pinStatus?.enrollment_required && pinStatus.authenticated === false) {
+        // Device is not yet bound to a terminal: show enrollment, not the keypad.
+        set({
+          user: null,
+          isLoading: false,
+          pinLoginAvailable: false,
+          requiresPinLogin: false,
+          requiresTerminalEnrollment: true,
+        });
+        return;
+      }
+
       if (pinStatus?.enabled && pinStatus.authenticated === false) {
         set({
           user: null,
           isLoading: false,
           pinLoginAvailable: true,
           requiresPinLogin: true,
+          requiresTerminalEnrollment: false,
           pinMinLength: pinStatus.min_length || 4,
           pinMaxLength: pinStatus.max_length || 6,
         });
