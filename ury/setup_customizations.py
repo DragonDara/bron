@@ -420,7 +420,7 @@ def get_custom_fields():
 				"label": "Mobile Number",
 				"insert_after": "customer_name",
 				"translatable": 0,
-				"reqd": 1
+				"reqd": 0
 			},
 		],
 
@@ -443,7 +443,28 @@ def get_custom_fields():
 				"read_only": 1,
 			},
 		],
-     
+		"Stock Entry": [
+			{
+				"fieldname": "custom_ury_posting_intent",
+				"fieldtype": "Data",
+				"label": "URY Posting Intent",
+				"insert_after": "remarks",
+				"read_only": 1,
+				"search_index": 1,
+				"translatable": 0,
+			},
+			{
+				"fieldname": "custom_ury_batch_request",
+				"fieldtype": "Data",
+				"label": "URY Batch Request",
+				"description": "Idempotency key for a Start Batch/Receive Batch request posted by ury_batch_manufacture_service.py. Indexed for exact-match FOR UPDATE dedupe lookups, same pattern as custom_ury_posting_intent.",
+				"insert_after": "custom_ury_posting_intent",
+				"read_only": 1,
+				"search_index": 1,
+				"translatable": 0,
+			},
+		],
+
     }
  
 def delete_custom_fields(custom_fields):

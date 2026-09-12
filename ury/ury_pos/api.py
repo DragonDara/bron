@@ -204,6 +204,33 @@ def getModeOfPayment():
     return modeOfPayments
 
 
+@frappe.whitelist()
+def get_production_units_for_branch():
+	"""Fetch all production unit names for the current user's branch.
+
+	Returns a list of production unit names that should be subscribed to for
+	KOT error channels on the POS terminal.
+	"""
+	try:
+		branch = getBranch()
+	except frappe.exceptions.ValidationError:
+		# Fallback if getBranch() throws (e.g., Administrator with no branch)
+		return {"production_units": []}
+
+	if not branch:
+		return {"production_units": []}
+
+	productions = frappe.get_all(
+		"URY Production Unit",
+		filters={"branch": branch},
+		fields=["name"]
+	)
+
+	production_names = [p.name for p in productions]
+
+	return {"production_units": production_names}
+
+
 def format_merged_table_label(primary, merged_tables=None):
     if not primary:
         return ""
@@ -389,6 +416,14 @@ def get_split_group(invoice):
 
 @frappe.whitelist()
 def getInvoiceForCashier(status, cashier, limit, limit_start):
+    # U27: `cashier` was previously accepted as-is from the caller, so any
+    # authenticated user in a branch could read another cashier's invoices.
+    # Only an elevated role may look up someone else's invoices; everyone
+    # else is scoped to their own session user regardless of what they pass.
+    if cashier != frappe.session.user:
+        elevated_roles = {"System Manager", "URY Manager", "URY Captain"}
+        if not elevated_roles.intersection(frappe.get_roles()):
+            cashier = frappe.session.user
     branch = getBranch()
     updatedlist = []
     limit = int(limit)+1
@@ -839,6 +874,7 @@ def getPosInvoiceItems(invoice):
                 "qty": items.qty,
                 "rate": items.rate,
                 "amount": items.amount,
+                "is_disposable": items.is_disposable,
             }
         )
     taxDetail = orderdItems.taxes
@@ -939,6 +975,13 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
 
     """Create a new customer"""
     try:
+        if territory and not frappe.db.exists("Territory", territory):
+            fallback_territory = frappe.db.get_single_value("Selling Settings", "territory")
+            if fallback_territory and frappe.db.exists("Territory", fallback_territory):
+                territory = fallback_territory
+            else:
+                territory = frappe.db.get_value("Territory", {"is_group": 1}, "name") or territory
+
         customer = frappe.get_doc({
             "doctype": "Customer",
             "customer_name": customer_name,
@@ -975,22 +1018,56 @@ def get_open_pos_opening_entries(pos_profile):
     Close Shift dialog failed outright with "no attribute
     'get_open_pos_opening_entries'").
 
-    Read-only, no cross-branch/company filtering beyond `pos_profile` itself
-    -- matches this file's existing convention for closing-flow helpers
-    (validate_pos_close, _get_main_cashier_status), which likewise scope by
-    pos_profile alone and rely on frappe.has_permission on the returned
-    POS Invoice-adjacent data downstream for anything more granular.
+    Scoped by branch (the POS Profile must belong to the session user's
+    branch) and, for non-supervisors, by user (only their own open entries
+    are returned) -- matches this file's existing getBranch()/System Manager
+    supervisor-bypass convention used elsewhere (e.g. searchPosInvoice,
+    fav_items).
     """
     if not frappe.has_permission("POS Opening Entry", "read"):
         frappe.throw(_("Not permitted to view POS Opening Entries."), frappe.PermissionError)
 
+    session_user = frappe.session.user
+    is_supervisor = session_user == "Administrator" or "System Manager" in frappe.get_roles()
+
+    try:
+        session_branch = getBranch()
+    except frappe.ValidationError:
+        if is_supervisor:
+            # Supervisors may not be mapped to a branch
+            session_branch = None
+        else:
+            raise
+
+    profile_branch = frappe.db.get_value("POS Profile", pos_profile, "branch")
+
+    if not profile_branch:
+        frappe.throw(
+            _("POS Profile {0} not found.").format(pos_profile),
+            frappe.DoesNotExistError,
+        )
+
+    if session_branch and profile_branch != session_branch:
+        frappe.throw(
+            _("You do not have permission to access opening entries for POS Profile {0}.").format(
+                pos_profile
+            ),
+            frappe.PermissionError,
+        )
+
+    filters = {
+        "pos_profile": pos_profile,
+        "status": "Open",
+        "docstatus": 1,
+    }
+
+    # Non-supervisors only see their own open entries
+    if not is_supervisor:
+        filters["user"] = session_user
+
     return frappe.get_all(
         "POS Opening Entry",
-        filters={
-            "pos_profile": pos_profile,
-            "status": "Open",
-            "docstatus": 1,
-        },
+        filters=filters,
         fields=["name", "period_start_date", "user", "pos_profile"],
     )
 
@@ -1009,10 +1086,12 @@ def validate_pos_close(pos_profile):
         else:
             previous_day = start_of_day
     
+        # A session left open for 2+ days (missed close, not just yesterday's)
+        # must still be caught, not just one opened exactly on `previous_day`.
         unclosed_pos_opening = frappe.db.exists(
             "POS Opening Entry",
             {
-                "posting_date": previous_day.date(),
+                "posting_date": ["<=", previous_day.date()],
                 "status": "Open",
                 "pos_profile": pos_profile,
                 "docstatus": 1
@@ -1119,12 +1198,14 @@ def _get_main_cashier_status(pos_profile_name: str) -> dict:
 
 
 @frappe.whitelist()
-def create_pos_opening_entry(pos_profile: str, company: str, balance_details) -> dict:
+def create_pos_opening_entry(pos_profile: str, company: str = None, balance_details=None) -> dict:
     """Create and submit a POS Opening Entry for the ORI native screen.
 
     Wraps the standard ERPNext flow but fills URY-mandatory fields
-    (branch and restaurant) from the selected POS Profile so ORI users do not
-    need to leave the React app.
+    (branch, restaurant, and company) from the selected POS Profile so ORI
+    users do not need to leave the React app, and so a caller cannot submit
+    an Opening Entry against a company the POS Profile isn't actually
+    configured for.
 
     ``balance_details`` may be a JSON string (legacy Desk shape) or a list of
     ``{"mode_of_payment": ..., "opening_amount": ...}`` dicts.
@@ -1144,9 +1225,16 @@ def create_pos_opening_entry(pos_profile: str, company: str, balance_details) ->
         frappe.throw(_("Selected POS Profile has no Branch."))
     if not pos_profile_doc.restaurant:
         frappe.throw(_("Selected POS Profile has no Restaurant."))
+    if not pos_profile_doc.company:
+        frappe.throw(_("Selected POS Profile has no Company."))
 
     if not frappe.has_permission("POS Profile", "read", doc=pos_profile_doc):
         frappe.throw(_("Not permitted to use this POS Profile."), frappe.PermissionError)
+
+    # U24: derive company from the resolved POS Profile the same way
+    # branch/restaurant already are, rather than trusting a caller-supplied
+    # value that may not match the profile at all.
+    company = pos_profile_doc.company
 
     for entry in balance_details or []:
         opening_amount = entry.get("opening_amount") if isinstance(entry, dict) else None
@@ -1307,8 +1395,6 @@ def get_pos_opening_screen_data() -> dict:
     }
 
 
-@frappe.whitelist()
-
 def _validate_checklist_branch(pos_profile):
     """Ensure the session user's branch matches the given POS Profile's branch."""
     session_branch = getBranch()
@@ -1393,17 +1479,10 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
         filters={"parent": pos_profile, "applies_to": ["in", [checklist_type, "Both"]]},
         parent_doctype="POS Profile",
     )
-    
-    if not configured_items:
-        return {
-            "status": "Complete",
-            "name": None,
-        }
-    mandatory_by_label = {row.item_label: row.is_mandatory for row in configured_items}
 
     existing_log = frappe.get_all(
         "URY POS Checklist Log",
-        fields=["name"],
+        fields=["name", "status"],
         filters={
             "pos_profile": pos_profile,
             "checklist_type": checklist_type,
@@ -1411,6 +1490,22 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
         },
         limit=1,
     )
+
+    if not configured_items:
+        # Mirror get_checklist: a pre-existing log for today still reflects
+        # the real state (e.g. "In Progress") even if the checklist type's
+        # items were since removed/reconfigured. Only default to "Complete"
+        # when there is genuinely no prior log to contradict.
+        if existing_log:
+            return {
+                "status": existing_log[0].status,
+                "name": existing_log[0].name,
+            }
+        return {
+            "status": "Complete",
+            "name": None,
+        }
+    mandatory_by_label = {row.item_label: row.is_mandatory for row in configured_items}
 
     if existing_log:
         log_doc = frappe.get_doc("URY POS Checklist Log", existing_log[0].name)
@@ -1588,3 +1683,37 @@ def merge_bills(primary_invoice, secondary_invoice):
             "status": "error",
             "message": str(e),
         }
+
+
+@frappe.whitelist()
+def ensure_payment_mode_accounts(modes, company):
+    """Ensure every Mode of Payment in `modes` has a default account for `company`.
+
+    Called from the frontend POS Profile form right before save, so a payment
+    mode with no company-scoped default account (e.g. Cheque, Credit Card,
+    Zomato, Swiggy, Direct -- anything the dev-seed's Cash/Card/UPI wiring
+    never covers) doesn't crash ERPNext's standard POS Profile validation
+    ("Please set default Cash or Bank account in Mode of Payments ...").
+    """
+    from ury.ury.dev_seed.profiles import _ensure_mode_of_payment
+
+    # Mode of Payment / Account records are accounts-configuration data, so
+    # require the same permission ERPNext's own Mode of Payment desk form
+    # requires (Accounts Manager / URY Manager per this app's DocPerm
+    # fixtures -- System Manager is NOT granted create on either doctype
+    # here, live-verified) -- not just any authenticated session.
+    if not frappe.has_permission("Mode of Payment", "create") or not frappe.has_permission("Account", "create"):
+        frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+    if isinstance(modes, str):
+        modes = frappe.parse_json(modes)
+    if not modes or not company:
+        return []
+
+    ensured = []
+    for mode in modes:
+        if not mode:
+            continue
+        _ensure_mode_of_payment(mode, company)
+        ensured.append(mode)
+    return ensured

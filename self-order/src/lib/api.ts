@@ -20,9 +20,16 @@ export interface OrderingContext {
   session: string
   source: string
   restaurant: string
+  /** Company for the V3-44 availability display check (get_item_availability
+   * requires branch+company). Sourced server-side from the ordering profile's
+   * branch -> company lookup — see self_ordering.py's `_ordering_context_response`. */
+  company: string
   table: string | null
   layout: OrderingLayout
   capabilities: OrderingCapabilities
+  /** Per-profile idle timeout (defaults to 30 server-side) — used to configure
+   * idle-reset timers instead of hardcoding a value. */
+  session_idle_timeout_minutes: number
 }
 
 export interface MenuItem {
@@ -161,6 +168,34 @@ export async function addItems(
   const response = await call.post<FrappeResponse<CustomerOrder>>(`${M}.add_customer_items`, {
     session,
     items: JSON.stringify(items),
+  })
+  return response.message
+}
+
+export interface ProductOption {
+  item_code: string
+  item_name: string
+  image: string | null
+  // Null when no `Item Price` row exists for the resolved price list — the
+  // caller must handle a missing rate gracefully, not assume it's always set.
+  rate: number | null
+}
+
+export interface ProductDetail {
+  item_code: string
+  item_name: string
+  // Null when the profile's `show_item_descriptions` capability is off.
+  description: string | null
+  // Null when the profile's `show_item_images` capability is off.
+  image: string | null
+  variants: ProductOption[]
+  addons: ProductOption[]
+}
+
+export async function getCustomerProduct(session: string, itemCode: string): Promise<ProductDetail> {
+  const response = await call.get<FrappeResponse<ProductDetail>>(`${M}.get_customer_product`, {
+    session,
+    item_code: itemCode,
   })
   return response.message
 }

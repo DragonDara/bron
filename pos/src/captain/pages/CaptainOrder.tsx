@@ -15,7 +15,7 @@ import {
 import { printOrder } from '../../lib/print';
 import { resolvePrintFormat } from '../../lib/invoice-api';
 import { getVacantTablesForBranch, Table } from '../../lib/table-api';
-import { DINE_IN } from '../../data/order-types';
+import { DINE_IN, TAKE_AWAY } from '../../data/order-types';
 import { useTableOrderContext, OrderDeltaLine } from '../hooks/useTableOrderContext';
 import CaptainMenu from '../components/CaptainMenu';
 import CaptainOrderLine from '../components/CaptainOrderLine';
@@ -74,7 +74,28 @@ export default function CaptainOrder() {
     selectedCustomer,
     clearTableOrder,
     isOrderInteractionDisabled,
+    selectedOrderType,
+    setSelectedOrderType,
   } = usePOSStore();
+
+  // Every captain table order used to be assumed Dine In, but takeaway
+  // tables (`URY Table.is_take_away`, surfaced via `context.table` from
+  // `get_table_order_context()`) exist and are listed in CaptainTables like
+  // any other table. Forcing Dine In on all of them applied the wrong
+  // menu/pax rules and reported the wrong order_type for those tables. The
+  // shared pos-store's `selectedOrderType` otherwise defaults to "Take Away"
+  // (see DEFAULT_ORDER_TYPE in data/order-types.ts) and is normally only set
+  // by the Cashier's OrderTypeSelect control, which this screen doesn't
+  // render — so still force a value on mount, just the correct one per table.
+  const tableOrderType = context?.table?.is_take_away ? TAKE_AWAY : DINE_IN;
+
+  useEffect(() => {
+    if (!context?.table) return;
+    if (selectedOrderType !== tableOrderType) {
+      setSelectedOrderType(tableOrderType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context?.table, tableOrderType]);
 
   const [mode, setMode] = useState<Mode>('order');
   const [hasSetInitialMode, setHasSetInitialMode] = useState(false);
@@ -208,7 +229,7 @@ export default function CaptainOrder() {
         })),
         no_of_pax: noOfPax,
         pos_profile: posProfile.name,
-        order_type: DINE_IN,
+        order_type: tableOrderType,
         table,
         room: selectedRoom || undefined,
         customer: selectedCustomer.name,
@@ -374,14 +395,14 @@ export default function CaptainOrder() {
       )}
 
       {!canModify && (
-        <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-3">
+        <div className="flex items-center justify-between bg-white border border-border rounded-lg px-3 py-3">
           <span className="text-sm font-medium text-gray-700">Pax</span>
           <span className="text-sm text-gray-900">{noOfPax}</span>
         </div>
       )}
 
       {canModify && (
-        <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-3">
+        <div className="flex items-center justify-between bg-white border border-border rounded-lg px-3 py-3">
           <span className="text-sm font-medium text-gray-700">Pax</span>
           <div className="flex items-center gap-3">
             <Button
@@ -525,7 +546,7 @@ export default function CaptainOrder() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-3 py-3 flex items-center justify-between">
+      <div className="sticky top-0 z-20 bg-white border-b border-border px-3 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button onClick={() => navigate('/order')} variant="ghost" size="icon" aria-label="Back to Tables">
             <ChevronLeft className="w-5 h-5" />
@@ -605,18 +626,18 @@ export default function CaptainOrder() {
       <div className="hidden lg:flex lg:flex-col lg:flex-1 lg:overflow-hidden">
         <div className="flex flex-row gap-4 flex-1 overflow-hidden p-3">
           {canModify && (
-            <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white">
               <CaptainMenu canAddItems={canModify} />
             </div>
           )}
-          <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-white">
             <OrderListContent />
           </div>
         </div>
 
         {/* Primary action for tablet */}
         {canModify && (
-          <div className="bg-white border-t border-gray-200 p-3 mx-3 mb-3 rounded-lg">
+          <div className="bg-white border-t border-border p-3 mx-3 mb-3 rounded-lg">
             <div className="flex items-center justify-between mb-2 px-1">
               <span className="text-sm font-semibold text-gray-700">Total</span>
               <span className="text-lg font-semibold text-gray-900">{formatCurrency(total)}</span>
@@ -645,7 +666,7 @@ export default function CaptainOrder() {
 
       {/* Primary action for mobile */}
       {canModify && (
-        <div className="sticky bottom-0 lg:hidden bg-white border-t border-gray-200 p-3">
+        <div className="sticky bottom-0 lg:hidden bg-white border-t border-border p-3">
           <div className="flex items-center justify-between mb-2 px-1">
             <span className="text-sm font-semibold text-gray-700">Total</span>
             <span className="text-lg font-semibold text-gray-900">{formatCurrency(total)}</span>

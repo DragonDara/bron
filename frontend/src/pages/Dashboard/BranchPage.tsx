@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useBranchContext } from '../../context/BranchContext';
 import { Save, Plus, X, Eye, Edit2, ArrowLeft, Building2, UtensilsCrossed, Map } from 'lucide-react';
-import { Card, Button, Input, Spinner, showToast } from '@ury/ui';
+import { Card, Button, Input, Spinner, showToast, DataTable, type DataTableColumn } from '@ury/ui';
 import { Switch } from '../../components/ui/switch';
 import SideDrawer from '../../components/layout/SideDrawer';
 import { call, getLoggedUser } from '@ury/core';
@@ -54,7 +54,8 @@ export const BranchPage: React.FC = () => {
 
   // Linked data
   const [menus, setMenus] = useState<{ name: string; menu_name?: string }[]>([]);
-  const [rooms, setRooms] = useState<{ name: string; room_name?: string }[]>([]);
+  const [rooms, setRooms] = useState<{ name: string; room_name?: string; branch?: string }[]>([]);
+  const [addresses, setAddresses] = useState<{ name: string; address_title?: string }[]>([]);
 
   const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
   const [addForm, setAddForm] = useState({
@@ -77,7 +78,7 @@ export const BranchPage: React.FC = () => {
     try {
       const res = await call<any>('frappe.client.get_list', {
         doctype: 'Branch',
-        fields: ['name', 'branch', 'address', 'custom_no_taxes'],
+        fields: ['name', 'branch', 'custom_no_taxes'],
         limit_page_length: 100
       });
       list = Array.isArray(res) ? res : (res?.message || []);
@@ -129,7 +130,7 @@ export const BranchPage: React.FC = () => {
     try {
       const [menuRes, roomRes] = await Promise.all([
         dashboardService.getModuleRecords<{ name: string; menu_name?: string }>('URY Menu', 'all'),
-        dashboardService.getModuleRecords<{ name: string; room_name?: string }>('URY Room', 'all'),
+        dashboardService.getModuleRecords<{ name: string; room_name?: string; branch?: string }>('URY Room', 'all'),
       ]);
       setMenus(menuRes || []);
       setRooms(roomRes || []);
@@ -138,9 +139,54 @@ export const BranchPage: React.FC = () => {
     }
   };
 
+  const fetchAddresses = async () => {
+    try {
+      const res = await call<any>('frappe.client.get_list', {
+        doctype: 'Address',
+        fields: ['name', 'address_title'],
+        limit_page_length: 200,
+      });
+      const list = Array.isArray(res) ? res : (res?.message || []);
+      setAddresses(list || []);
+    } catch (e) {
+      console.error('Failed to load addresses', e);
+    }
+  };
+
+  // Given free text or an existing Address name, return the linked Address doctype
+  // name to store on Branch/URY Restaurant, creating a new Address record if the
+  // text doesn't match an existing one.
+  const resolveAddressOrCreate = async (raw: string): Promise<string> => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return '';
+    const existing = addresses.find(
+      (a) => a.name === trimmed || (a.address_title && a.address_title.toLowerCase() === trimmed.toLowerCase())
+    );
+    if (existing) return existing.name;
+    try {
+      const res = await call<any>('frappe.client.insert', {
+        doc: {
+          doctype: 'Address',
+          address_title: trimmed,
+          address_type: 'Billing',
+          address_line1: trimmed,
+          city: trimmed,
+          country: 'India',
+        },
+      });
+      const created = res.message || res;
+      await fetchAddresses();
+      return created.name;
+    } catch (e) {
+      console.error('Failed to create Address', e);
+      throw e;
+    }
+  };
+
   useEffect(() => {
     fetchCompanies();
     fetchLinkedData();
+    fetchAddresses();
     fetchBranchList();
   }, [activeBranchId]);
 
@@ -156,7 +202,9 @@ export const BranchPage: React.FC = () => {
       setBranchData(branch);
       setBranchForm({
         branch_name: branch.branch_name || branch.name || '',
-        address: branch.address || '',
+        // Branch itself has no address field -- the real Link lives on the
+        // linked URY Restaurant (restaurant.address, populated below).
+        address: '',
         custom_no_taxes: branch.custom_no_taxes || 0,
       });
 
@@ -179,6 +227,10 @@ export const BranchPage: React.FC = () => {
           });
           const restaurant = restaurantRes.message || restaurantRes;
           setRestaurantData(restaurant);
+          // Address is a Link field on URY Restaurant, not Branch -- surface it
+          // through branchForm.address since that's what the Address picker in
+          // the edit form is bound to.
+          setBranchForm((prev) => ({ ...prev, address: restaurant.address || '' }));
           setRestaurantForm({
             invoice_series_prefix: restaurant.invoice_series_prefix || '',
             aggregator_series_prefix: restaurant.aggregator_series_prefix || '',
@@ -216,6 +268,32 @@ export const BranchPage: React.FC = () => {
     setIsEditMode(true);
     setSelectedBranch(branch);
     fetchDetails(branch.name);
+  };
+
+  // Small, safe stand-in for a backend after_insert hook: lets a branch that has
+  // no room yet (typically a Branch created directly in Desk, since room creation
+  // today only happens client-side in handleAddBranch) get a default room without
+  // leaving the page.
+  const handleCreateDefaultRoom = async () => {
+    if (!selectedBranch) return;
+    setSaving(true);
+    try {
+      const roomName = `Main Dining - ${selectedBranch.name}`;
+      await call('frappe.client.insert', {
+        doc: {
+          doctype: 'URY Room',
+          name: roomName,
+          room_name: 'Main Dining',
+          branch: selectedBranch.name,
+        },
+      });
+      showToast.success('Default room created');
+      await fetchLinkedData();
+    } catch (err: any) {
+      showToast.error(err.message || 'Failed to create default room');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAddBranch = async (e: React.FormEvent) => {
@@ -256,6 +334,10 @@ export const BranchPage: React.FC = () => {
         return;
       }
 
+      // Resolve the Address field to a real Address doctype link, creating one if
+      // the user typed a new value that doesn't match an existing record.
+      const resolvedAddress = await resolveAddressOrCreate(addForm.address);
+
       await call('frappe.client.insert', {
         doc: {
           doctype: 'Branch',
@@ -281,7 +363,7 @@ export const BranchPage: React.FC = () => {
           invoice_series_prefix: addForm.invoicePrefix,
           aggregator_series_prefix: addForm.aggregatorPrefix,
           tax_id: addForm.taxId,
-          address: addForm.address,
+          address: resolvedAddress,
           default_room: roomName
         }
       });
@@ -299,15 +381,18 @@ export const BranchPage: React.FC = () => {
   const handleSave = async () => {
     if (!selectedBranch) return;
 
-    // Validate invoice series prefix
-    if (!restaurantForm.invoice_series_prefix || !restaurantForm.invoice_series_prefix.trim()) {
+    // Validate invoice series prefix — only relevant when a URY Restaurant actually
+    // exists to save it to. A plain Branch with no linked URY Restaurant (e.g. one
+    // created directly in Desk) must still be editable/savable for its own fields.
+    if (restaurantData && (!restaurantForm.invoice_series_prefix || !restaurantForm.invoice_series_prefix.trim())) {
       showToast.error('Invoice Series Prefix is required');
       return;
     }
 
     const original = {
       branch_name: (selectedBranch.branch_name || selectedBranch.name || '').trim(),
-      address: (branchData?.address || '').trim(),
+      // address is a URY Restaurant field, not a Branch field -- see fetchDetails.
+      address: (restaurantData?.address || '').trim(),
       custom_no_taxes: branchData?.custom_no_taxes ? 1 : 0,
       invoice_series_prefix: (restaurantData?.invoice_series_prefix || '').trim(),
       aggregator_series_prefix: (restaurantData?.aggregator_series_prefix || '').trim(),
@@ -373,13 +458,18 @@ export const BranchPage: React.FC = () => {
         currentBranchName = newBranchName;
       }
 
-      // Save Branch fields (address and custom_no_taxes)
+      // Resolve the Address field to a real Address doctype link, creating one if
+      // the user typed a new value that doesn't match an existing record.
+      const resolvedAddress = await resolveAddressOrCreate(branchForm.address);
+
+      // Save Branch's own fields. Address is NOT one of them -- Branch has no
+      // address field on this doctype; the real Link lives on URY Restaurant
+      // (saved below) and is applied there instead.
       await call('frappe.client.set_value', {
         doctype: 'Branch',
         name: currentBranchName,
         fieldname: {
           branch: branchForm.branch_name,
-          address: branchForm.address,
           custom_no_taxes: branchForm.custom_no_taxes ? 1 : 0,
         },
       });
@@ -387,20 +477,30 @@ export const BranchPage: React.FC = () => {
       // Save URY Restaurant fields if it exists
       if (restaurantData) {
         let currentRestaurantName = restaurantData.name;
-        const newRestaurantName = `${branchForm.branch_name.trim()} Restaurant`;
-        if (newRestaurantName !== restaurantData.name) {
-          await call('frappe.client.rename_doc', {
-            doctype: 'URY Restaurant',
-            old_name: restaurantData.name,
-            new_name: newRestaurantName,
-          });
-          currentRestaurantName = newRestaurantName;
+        // Only rename the Restaurant when the Branch name actually changed --
+        // recomputing "<branch> Restaurant" and renaming whenever it differs
+        // from the CURRENT restaurant doc name renames on every unrelated save
+        // for any restaurant not already named exactly that (e.g. one renamed
+        // in Desk, or a seeded "Demo Restaurant"). Same bug class as the Room/
+        // Table name-mutation issues fixed elsewhere in this round.
+        const branchNameChanged = original.branch_name !== current.branch_name;
+        if (branchNameChanged) {
+          const newRestaurantName = `${branchForm.branch_name.trim()} Restaurant`;
+          if (newRestaurantName !== restaurantData.name) {
+            await call('frappe.client.rename_doc', {
+              doctype: 'URY Restaurant',
+              old_name: restaurantData.name,
+              new_name: newRestaurantName,
+            });
+            currentRestaurantName = newRestaurantName;
+          }
         }
 
         const updatedDoc = {
           ...restaurantData,
           name: currentRestaurantName,
           branch: branchForm.branch_name.trim(),
+          address: resolvedAddress,
           invoice_series_prefix: restaurantForm.invoice_series_prefix,
           aggregator_series_prefix: restaurantForm.aggregator_series_prefix,
           tax_id: restaurantForm.tax_id,
@@ -432,22 +532,22 @@ export const BranchPage: React.FC = () => {
     return (
       <div className="space-y-6">
         {/* Navigation & Action Header */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-gray-200">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-border">
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setSelectedBranch(null)}
-              className="text-gray-700 hover:text-primary flex items-center gap-1.5 shadow-2xs"
+              className="text-foreground hover:text-primary flex items-center gap-1.5 shadow-2xs"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back</span>
             </Button>
-            <div className="h-5 w-px bg-gray-200" />
+            <div className="h-5 w-px bg-muted" />
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Branch: {selectedBranch.branch_name || selectedBranch.name}</h2>
-              <p className="text-xs text-gray-500">
-                Address: {branchForm.address || 'Not specified'}
+              <h2 className="text-lg font-bold text-foreground">Branch: {selectedBranch.branch_name || selectedBranch.name}</h2>
+              <p className="text-xs text-muted-foreground">
+                Address: {addresses.find((a) => a.name === branchForm.address)?.address_title || branchForm.address || 'Not specified'}
               </p>
             </div>
           </div>
@@ -476,24 +576,24 @@ export const BranchPage: React.FC = () => {
 
         {/* Unified Branch Details Container */}
         {loading ? (
-          <div className="py-16 flex items-center justify-center bg-white rounded-lg border border-gray-200">
+          <div className="py-16 flex items-center justify-center bg-card rounded-lg border border-border">
             <Spinner className="w-8 h-8 text-primary" />
           </div>
         ) : (
-          <Card className="p-6 rounded-lg border border-gray-200 bg-white shadow-sm space-y-8">
+          <Card className="p-6 rounded-lg border border-border bg-card shadow-sm space-y-8">
             {/* BRANCH INFO SUBSECTION */}
             <div>
-              <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-border mb-4">
                 <div className="w-7 h-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <Building2 className="w-4 h-4" />
                 </div>
-                <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
                   Branch Info
                 </h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Branch Name</label>
+                  <label className="text-sm font-medium text-foreground">Branch Name</label>
                   <Input
                     value={branchForm.branch_name || ''}
                     onChange={(e) => setBranchForm(p => ({ ...p, branch_name: e.target.value }))}
@@ -502,12 +602,17 @@ export const BranchPage: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Address</label>
-                  <Input
+                  <label className="text-sm font-medium text-foreground">Address</label>
+                  <SearchableSelect
+                    id="branch_address"
                     value={branchForm.address || ''}
-                    onChange={(e) => setBranchForm(p => ({ ...p, address: e.target.value }))}
+                    onChange={(_, val) => setBranchForm(p => ({ ...p, address: val }))}
+                    options={[
+                      { value: '', label: 'None' },
+                      ...addresses.map((a) => ({ value: a.name, label: a.address_title || a.name }))
+                    ]}
                     disabled={!isEditMode}
-                    className="rounded-lg"
+                    placeholder="Search or type a new address"
                   />
                 </div>
               </div>
@@ -515,12 +620,12 @@ export const BranchPage: React.FC = () => {
 
             {/* RESTAURANT INFO SUBSECTION */}
             <div>
-              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100">
+              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4 pb-2 border-b border-border">
                 Restaurant Info
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Invoice Series Prefix <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-medium text-foreground">Invoice Series Prefix <span className="text-red-500">*</span></label>
                   <Input
                     value={restaurantForm.invoice_series_prefix || ''}
                     onChange={(e) => setRestaurantForm(p => ({ ...p, invoice_series_prefix: e.target.value }))}
@@ -529,7 +634,7 @@ export const BranchPage: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Aggregator Series Prefix</label>
+                  <label className="text-sm font-medium text-foreground">Aggregator Series Prefix</label>
                   <Input
                     value={restaurantForm.aggregator_series_prefix || ''}
                     onChange={(e) => setRestaurantForm(p => ({ ...p, aggregator_series_prefix: e.target.value }))}
@@ -538,7 +643,7 @@ export const BranchPage: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Tax ID</label>
+                  <label className="text-sm font-medium text-foreground">Tax ID</label>
                   <Input
                     value={restaurantForm.tax_id || ''}
                     onChange={(e) => setRestaurantForm(p => ({ ...p, tax_id: e.target.value }))}
@@ -547,7 +652,7 @@ export const BranchPage: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Default Tax Template</label>
+                  <label className="text-sm font-medium text-foreground">Default Tax Template</label>
                   <Input
                     value={restaurantForm.default_tax_template || ''}
                     onChange={(e) => setRestaurantForm(p => ({ ...p, default_tax_template: e.target.value }))}
@@ -561,11 +666,11 @@ export const BranchPage: React.FC = () => {
 
             {/* MENU SUBSECTION */}
             <div>
-              <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-border mb-4">
                 <div className="w-7 h-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <UtensilsCrossed className="w-4 h-4" />
                 </div>
-                <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
                   Menu
                 </h3>
               </div>
@@ -573,7 +678,7 @@ export const BranchPage: React.FC = () => {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Default Menu (Active Menu)</label>
+                      <label className="text-sm font-medium text-foreground">Default Menu (Active Menu)</label>
                       <SearchableSelect
                         id="active_menu"
                         value={restaurantForm.active_menu || ''}
@@ -601,50 +706,51 @@ export const BranchPage: React.FC = () => {
                         }}
                         disabled={!isEditMode}
                       />
-                      <label htmlFor="room_wise_menu" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      <label htmlFor="room_wise_menu" className="text-sm font-medium text-foreground cursor-pointer">
                         Room Wise Menu
                       </label>
                     </div>
                   </div>
-                  {!!restaurantForm.room_wise_menu && (
-                    <div className="mt-3 rounded-lg border border-gray-200 overflow-hidden">
-                      <table className="w-full text-xs text-gray-600">
-                        <thead className="bg-gray-50 border-b border-gray-100 font-semibold">
-                          <tr>
-                            <th className="px-4 py-2 text-left">Room</th>
-                            <th className="px-4 py-2 text-left">Menu</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {(restaurantForm.menu_for_room || []).map((row: any, idx: number) => (
-                            <tr key={idx}>
-                              <td className="px-4 py-2">
-                                <SearchableSelect
-                                  id={`room_${idx}`}
-                                  value={row.room || row.ury_room || ''}
-                                  onChange={(_, val) => {
-                                    const newRows = [...restaurantForm.menu_for_room];
-                                    newRows[idx].room = val;
-                                    newRows[idx].ury_room = val;
-                                    setRestaurantForm({...restaurantForm, menu_for_room: newRows});
-                                  }}
-                                  options={[
-                                    { value: '', label: 'Select Room' },
-                                    ...rooms.map(r => ({ value: r.name, label: r.room_name || r.name }))
-                                  ]}
-                                  disabled={!isEditMode}
-                                  placeholder="Select Room"
-                                />
-                              </td>
-                              <td className="px-4 py-2 flex items-center gap-2">
+                  {!!restaurantForm.room_wise_menu && (restaurantForm.menu_for_room || []).length > 0 && (
+                    <div className="mt-3">
+                      {(() => {
+                        const rows = (restaurantForm.menu_for_room || []).map((r: any, idx: number) => ({ ...r, _idx: idx }));
+                        const columns: DataTableColumn<any>[] = [
+                          {
+                            key: 'room',
+                            header: 'Room',
+                            render: (row) => (
+                              <SearchableSelect
+                                id={`room_${row._idx}`}
+                                value={row.room || row.ury_room || ''}
+                                onChange={(_, val) => {
+                                  const newRows = [...restaurantForm.menu_for_room];
+                                  newRows[row._idx].room = val;
+                                  newRows[row._idx].ury_room = val;
+                                  setRestaurantForm({...restaurantForm, menu_for_room: newRows});
+                                }}
+                                options={[
+                                  { value: '', label: 'Select Room' },
+                                  ...rooms.map(r => ({ value: r.name, label: r.room_name || r.name }))
+                                ]}
+                                disabled={!isEditMode}
+                                placeholder="Select Room"
+                              />
+                            )
+                          },
+                          {
+                            key: 'menu',
+                            header: 'Menu',
+                            render: (row) => (
+                              <div className="flex items-center gap-2">
                                 <div className="flex-1">
                                   <SearchableSelect
-                                    id={`menu_${idx}`}
+                                    id={`menu_${row._idx}`}
                                     value={row.menu || row.ury_menu || ''}
                                     onChange={(_, val) => {
                                       const newRows = [...restaurantForm.menu_for_room];
-                                      newRows[idx].menu = val;
-                                      newRows[idx].ury_menu = val;
+                                      newRows[row._idx].menu = val;
+                                      newRows[row._idx].ury_menu = val;
                                       setRestaurantForm({...restaurantForm, menu_for_room: newRows});
                                     }}
                                     options={[
@@ -656,45 +762,50 @@ export const BranchPage: React.FC = () => {
                                   />
                                 </div>
                                 {isEditMode && (
-                                  <button type="button" className="text-gray-400 hover:text-red-500 shrink-0" onClick={() => {
-                                    const newRows = restaurantForm.menu_for_room.filter((_:any, i:number) => i !== idx);
+                                  <button type="button" className="text-muted-foreground hover:text-red-500 shrink-0" onClick={() => {
+                                    const newRows = restaurantForm.menu_for_room.filter((_:any, i:number) => i !== row._idx);
                                     setRestaurantForm({...restaurantForm, menu_for_room: newRows});
                                   }}><X className="w-4 h-4" /></button>
                                 )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {isEditMode && (
-                        <div className="p-2 border-t border-gray-100 bg-gray-50">
-                          <Button type="button" variant="ghost" size="sm" className="text-primary h-7 text-xs" onClick={() => {
-                            setRestaurantForm({...restaurantForm, menu_for_room: [...(restaurantForm.menu_for_room || []), {room: '', menu: ''}]});
-                          }}>+ Add Row</Button>
-                        </div>
-                      )}
+                              </div>
+                            )
+                          },
+                        ];
+                        return (
+                          <>
+                            <DataTable columns={columns} rows={rows} />
+                            {isEditMode && (
+                              <div className="mt-2">
+                                <Button type="button" variant="ghost" size="sm" className="text-primary text-xs" onClick={() => {
+                                  setRestaurantForm({...restaurantForm, menu_for_room: [...(restaurantForm.menu_for_room || []), {room: '', menu: ''}]});
+                                }}>+ Add Row</Button>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">No URY Restaurant linked to this branch.</p>
+                <p className="text-sm text-muted-foreground">No URY Restaurant linked to this branch.</p>
               )}
             </div>
 
             {/* ROOM SUBSECTION */}
             <div>
-              <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-border mb-4">
                 <div className="w-7 h-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <Map className="w-4 h-4" />
                 </div>
-                <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
                   Room
                 </h3>
               </div>
               {restaurantData ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">Default Room</label>
+                    <label className="text-sm font-medium text-foreground">Default Room</label>
                     <SearchableSelect
                       id="default_room"
                       value={restaurantForm.default_room || ''}
@@ -722,13 +833,38 @@ export const BranchPage: React.FC = () => {
                       }}
                       disabled={!isEditMode}
                     />
-                    <label htmlFor="order_type_wise_menu" className="text-sm font-medium text-gray-700 cursor-pointer">
+                    <label htmlFor="order_type_wise_menu" className="text-sm font-medium text-foreground cursor-pointer">
                       Order Type Wise Menu
                     </label>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">No URY Restaurant linked to this branch.</p>
+                (() => {
+                  const branchRooms = rooms.filter((r) => r.branch === selectedBranch?.name);
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        No URY Restaurant linked to this branch, so room/menu assignment isn't available yet.
+                      </p>
+                      {branchRooms.length > 0 ? (
+                        <ul className="text-sm text-foreground list-disc list-inside">
+                          {branchRooms.map((r) => (
+                            <li key={r.name}>{r.room_name || r.name}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <p className="text-sm text-muted-foreground">This branch has no room yet.</p>
+                          {isEditMode && (
+                            <Button type="button" variant="outline" size="sm" onClick={handleCreateDefaultRoom} disabled={saving}>
+                              Create Default Room
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
               )}
             </div>
 
@@ -736,34 +872,35 @@ export const BranchPage: React.FC = () => {
             <div>
               {restaurantData ? (
                 <div className="space-y-4">
-                  {!!restaurantForm.order_type_wise_menu && (
-                    <div className="mt-3 rounded-lg border border-gray-200 overflow-hidden">
-                      <table className="w-full text-xs text-gray-600">
-                        <thead className="bg-gray-50 border-b border-gray-100 font-semibold">
-                          <tr>
-                            <th className="px-4 py-2 text-left">Order Type</th>
-                            <th className="px-4 py-2 text-left">Menu</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {(restaurantForm.order_type_menu || []).map((row: any, idx: number) => (
-                            <tr key={idx}>
-                              <td className="px-4 py-2">
-                                <Input disabled={!isEditMode} className="w-full text-xs" placeholder="e.g. Dine In" value={row.order_type || ''} onChange={e => {
-                                  const newRows = [...restaurantForm.order_type_menu];
-                                  newRows[idx].order_type = e.target.value;
-                                  setRestaurantForm({...restaurantForm, order_type_menu: newRows});
-                                }} />
-                              </td>
-                              <td className="px-4 py-2 flex items-center gap-2">
+                  {!!restaurantForm.order_type_wise_menu && (restaurantForm.order_type_menu || []).length > 0 && (
+                    <div className="mt-3">
+                      {(() => {
+                        const rows = (restaurantForm.order_type_menu || []).map((r: any, idx: number) => ({ ...r, _idx: idx }));
+                        const columns: DataTableColumn<any>[] = [
+                          {
+                            key: 'order_type',
+                            header: 'Order Type',
+                            render: (row) => (
+                              <Input disabled={!isEditMode} className="w-full text-xs" placeholder="e.g. Dine In" value={row.order_type || ''} onChange={e => {
+                                const newRows = [...restaurantForm.order_type_menu];
+                                newRows[row._idx].order_type = e.target.value;
+                                setRestaurantForm({...restaurantForm, order_type_menu: newRows});
+                              }} />
+                            )
+                          },
+                          {
+                            key: 'menu',
+                            header: 'Menu',
+                            render: (row) => (
+                              <div className="flex items-center gap-2">
                                 <div className="flex-1">
                                   <SearchableSelect
-                                    id={`order_type_menu_${idx}`}
+                                    id={`order_type_menu_${row._idx}`}
                                     value={row.menu || row.ury_menu || ''}
                                     onChange={(_, val) => {
                                       const newRows = [...restaurantForm.order_type_menu];
-                                      newRows[idx].menu = val;
-                                      newRows[idx].ury_menu = val;
+                                      newRows[row._idx].menu = val;
+                                      newRows[row._idx].ury_menu = val;
                                       setRestaurantForm({...restaurantForm, order_type_menu: newRows});
                                     }}
                                     options={[
@@ -775,28 +912,33 @@ export const BranchPage: React.FC = () => {
                                   />
                                 </div>
                                 {isEditMode && (
-                                  <button type="button" className="text-gray-400 hover:text-red-500 shrink-0" onClick={() => {
-                                    const newRows = restaurantForm.order_type_menu.filter((_:any, i:number) => i !== idx);
+                                  <button type="button" className="text-muted-foreground hover:text-red-500 shrink-0" onClick={() => {
+                                    const newRows = restaurantForm.order_type_menu.filter((_:any, i:number) => i !== row._idx);
                                     setRestaurantForm({...restaurantForm, order_type_menu: newRows});
                                   }}><X className="w-4 h-4" /></button>
                                 )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {isEditMode && (
-                        <div className="p-2 border-t border-gray-100 bg-gray-50">
-                          <Button type="button" variant="ghost" size="sm" className="text-primary h-7 text-xs" onClick={() => {
-                            setRestaurantForm({...restaurantForm, order_type_menu: [...(restaurantForm.order_type_menu || []), {order_type: '', menu: ''}]});
-                          }}>+ Add Row</Button>
-                        </div>
-                      )}
+                              </div>
+                            )
+                          },
+                        ];
+                        return (
+                          <>
+                            <DataTable columns={columns} rows={rows} />
+                            {isEditMode && (
+                              <div className="mt-2">
+                                <Button type="button" variant="ghost" size="sm" className="text-primary text-xs" onClick={() => {
+                                  setRestaurantForm({...restaurantForm, order_type_menu: [...(restaurantForm.order_type_menu || []), {order_type: '', menu: ''}]});
+                                }}>+ Add Row</Button>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">No URY Restaurant linked to this branch.</p>
+                <p className="text-sm text-muted-foreground">No URY Restaurant linked to this branch.</p>
               )}
             </div>
           </Card>
@@ -809,7 +951,7 @@ export const BranchPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Toolbar */}
-      <div className="flex flex-col md:flex-row items-center justify-end gap-4 pb-3 border-b border-gray-200 -mx-6 px-6 -mt-6 pt-6">
+      <div className="flex flex-col md:flex-row items-center justify-end gap-4 pb-3 border-b border-border -mx-6 px-6 -mt-6 pt-6">
         <Button
           onClick={() => setIsAddDrawerOpen(true)}
           className="bg-primary hover:bg-primary/90 text-white font-semibold flex items-center space-x-1.5 shadow-xs"
@@ -821,16 +963,16 @@ export const BranchPage: React.FC = () => {
 
       {/* Branch List Table */}
       {loading ? (
-        <div className="py-16 flex items-center justify-center bg-white rounded-lg border border-gray-200">
+        <div className="py-16 flex items-center justify-center bg-card rounded-lg border border-border">
           <Spinner className="w-8 h-8 text-primary" />
         </div>
       ) : branchList.length === 0 ? (
-        <Card className="p-12 flex flex-col items-center justify-center text-center rounded-lg border border-gray-200 shadow-sm bg-white">
+        <Card className="p-12 flex flex-col items-center justify-center text-center rounded-lg border border-border shadow-sm bg-card">
           <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
             <Building2 className="w-6 h-6 text-primary" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">No Branch Configured</h3>
-          <p className="text-gray-500 mb-6 max-w-sm">
+          <h3 className="text-lg font-semibold text-foreground mb-1">No Branch Configured</h3>
+          <p className="text-muted-foreground mb-6 max-w-sm">
             Create a Branch to manage restaurant settings and menus.
           </p>
           <Button
@@ -842,50 +984,50 @@ export const BranchPage: React.FC = () => {
           </Button>
         </Card>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold">
-              <tr>
-                <th className="px-6 py-4">Branch</th>
-                <th className="px-6 py-4">Default Menu</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {branchList.map((b) => (
-                <tr
-                  key={b.name}
-                  className="hover:bg-gray-50/50 transition-colors"
-                >
-                  <td className="px-6 py-4 font-semibold text-gray-900">{b.branch || b.branch_name || b.name}</td>
-                  <td className="px-6 py-4 text-gray-600">{b.default_menu || '-'}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleBranchView(b)}
-                        className="text-gray-500 hover:text-primary p-1.5 h-8 w-8"
-                        title="View Branch"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleBranchEdit(b)}
-                        className="text-gray-500 hover:text-primary p-1.5 h-8 w-8"
-                        title="Edit Branch"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {branchList.length > 0 && (
+            <>
+              {(() => {
+                const columns: DataTableColumn<BranchData>[] = [
+                  {
+                    key: 'branch',
+                    header: 'Branch',
+                    render: (row) => <span className="font-semibold text-foreground">{row.branch || row.branch_name || row.name}</span>
+                  },
+                  { key: 'default_menu', header: 'Default Menu', render: (row) => row.default_menu || '-' },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    align: 'right',
+                    render: (row) => (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleBranchView(row)}
+                          className="text-muted-foreground hover:text-primary p-1.5 h-8 w-8"
+                          title="View Branch"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleBranchEdit(row)}
+                          className="text-muted-foreground hover:text-primary p-1.5 h-8 w-8"
+                          title="Edit Branch"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )
+                  },
+                ];
+                return <DataTable columns={columns} rows={branchList} />;
+              })()}
+            </>
+          )}
+        </>
       )}
 
       {/* Add Branch Drawer */}
@@ -896,11 +1038,11 @@ export const BranchPage: React.FC = () => {
       >
         <form onSubmit={handleAddBranch} className="space-y-6 text-sm">
           <div>
-            <label className="block font-semibold text-gray-700 mb-1.5">Branch Name <span className="text-red-500">*</span></label>
+            <label className="block font-semibold text-foreground mb-1.5">Branch Name <span className="text-red-500">*</span></label>
             <Input required value={addForm.branchName} onChange={e => setAddForm({...addForm, branchName: e.target.value})} placeholder="e.g. Main Branch" />
           </div>
           <div>
-            <label className="block font-semibold text-gray-700 mb-1.5">Company <span className="text-red-500">*</span></label>
+            <label className="block font-semibold text-foreground mb-1.5">Company <span className="text-red-500">*</span></label>
             <SearchableSelect
               id="add_branch_company"
               value={addForm.company}
@@ -914,23 +1056,32 @@ export const BranchPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-gray-700 mb-1.5">Invoice Prefix <span className="text-red-500">*</span></label>
+              <label className="block font-semibold text-foreground mb-1.5">Invoice Prefix <span className="text-red-500">*</span></label>
               <Input required value={addForm.invoicePrefix} onChange={e => setAddForm({...addForm, invoicePrefix: e.target.value})} />
             </div>
             <div>
-              <label className="block font-semibold text-gray-700 mb-1.5">Aggregator Prefix <span className="text-red-500">*</span></label>
+              <label className="block font-semibold text-foreground mb-1.5">Aggregator Prefix <span className="text-red-500">*</span></label>
               <Input required value={addForm.aggregatorPrefix} onChange={e => setAddForm({...addForm, aggregatorPrefix: e.target.value})} />
             </div>
           </div>
           <div>
-            <label className="block font-semibold text-gray-700 mb-1.5">Tax ID (Optional)</label>
+            <label className="block font-semibold text-foreground mb-1.5">Tax ID (Optional)</label>
             <Input value={addForm.taxId} onChange={e => setAddForm({...addForm, taxId: e.target.value})} />
           </div>
           <div>
-            <label className="block font-semibold text-gray-700 mb-1.5">Address (Optional)</label>
-            <Input value={addForm.address} onChange={e => setAddForm({...addForm, address: e.target.value})} />
+            <label className="block font-semibold text-foreground mb-1.5">Address (Optional)</label>
+            <SearchableSelect
+              id="add_branch_address"
+              value={addForm.address}
+              onChange={(_, val) => setAddForm({...addForm, address: val})}
+              options={[
+                { value: '', label: 'None' },
+                ...addresses.map((a) => ({ value: a.name, label: a.address_title || a.name }))
+              ]}
+              placeholder="Search or type a new address"
+            />
           </div>
-          <div className="pt-6 flex justify-end gap-3 border-t border-gray-100">
+          <div className="pt-6 flex justify-end gap-3 border-t border-border">
             <Button type="button" variant="outline" onClick={() => setIsAddDrawerOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-white">
               Save

@@ -142,7 +142,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     setError(null);
     try {
       await call.post('ury.ury.doctype.ury_order.ury_order.make_invoice', {
-        additionalDiscount: appliedDiscount > 0 ? appliedDiscount : null,
+        additionalDiscount: discountValue ? parseFloat(discountValue) : null,
         cashier,
         customer,
         invoice,
@@ -168,7 +168,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent variant="xlarge" className="bg-white w-full max-w-4xl max-h-dialog-max-h flex flex-col md:flex-row p-0" showCloseButton={false}>
         {/* Left Column - Discount and Payment Mode */}
-        <div className="md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
+        <div className="md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-border overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">{t('payment.title')}</h2>
             <Button

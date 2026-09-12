@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@ury/ui";
+import { Card, CardContent, CardHeader, CardTitle, CHART_COLORS } from "@ury/ui";
 import { formatCompactCurrency } from "@ury/core";
 import {
   CartesianGrid,
@@ -11,8 +11,6 @@ import {
   YAxis,
 } from "recharts";
 
-const DEFAULT_COLORS = ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#0ea5e9", "#14b8a6"];
-
 export interface LineChartCardProps {
   title: string;
   data: Record<string, unknown>[];
@@ -23,22 +21,25 @@ export interface LineChartCardProps {
 }
 
 export function LineChartCard({ title, data, xKey, yKeys, colors, labels }: LineChartCardProps) {
-  const palette = colors ?? DEFAULT_COLORS;
+  const palette = colors ?? CHART_COLORS;
   const showDots = data.length > 0 && data.length < 20;
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey={xKey} />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey={xKey} tick={{ fontFamily: "var(--font-mono)", fontSize: 11 }} />
             <YAxis
               domain={[(dataMin: number) => Math.max(0, dataMin * 0.9), (dataMax: number) => dataMax * 1.05]}
               tickFormatter={(value) => formatCompactCurrency(Number(value))}
+              tick={{ fontFamily: "var(--font-mono)", fontSize: 11 }}
               width={64}
             />
             <Tooltip />
