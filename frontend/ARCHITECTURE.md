@@ -31,6 +31,15 @@ The production build writes to `../ury/public/ury/` and copies its HTML entry to
 - Handle loading, empty, partial-data, validation, and error states explicitly. Disable duplicate setup/report mutations while pending.
 - Avoid format/helper duplication: cross-report date behavior belongs in `lib/reportDate.ts`; app-only formatting in `utils/`; truly cross-app utilities in `@ury/core`.
 
+## Localization
+
+- `/ury` supports English and Russian. The explicit `ury_language` preference takes priority over Frappe's boot language; unsupported languages fall back to English.
+- `src/i18n/language.ts` owns the app's language selection and date/number locale. The EN/RU switch reloads the app after saving the preference, keeping module-level labels and the embedded POS consistent.
+- `src/i18n/ru.json` contains English-to-Russian copy for existing management, setup, reports and captain screens through the existing `@ury/core` DOM translation bridge. Use `translate()` for native dialogs and application-owned text that does not pass through the DOM. Interpolated dictionary keys use `{{name}}` placeholders.
+- The embedded POS has key-based catalogs in `src/pages/Pos/i18n/locales/`. Russian is loaded synchronously before first render, including direct captain-route entry; missing keys fall back to their English text.
+- Translate display copy, never routes, document fieldnames, option values or API payloads. Menu names and other server-owned content remain the responsibility of the data owner. New UI copy needs a Russian dictionary entry; new keyed POS text needs matching English/Russian entries and identical interpolation parameters.
+- Run `npm run test --workspace frontend -- src/i18n/i18n.test.tsx` for language resolution, fallback, catalog completeness and dynamic UI coverage.
+
 ## Naming
 
 - Components/pages/types: `PascalCase`; component files: `PascalCase.tsx`.
