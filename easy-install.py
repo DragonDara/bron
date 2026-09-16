@@ -786,8 +786,8 @@ def add_build_parser(subparsers: argparse.ArgumentParser):
 	parser.add_argument(
 		"-d",
 		"--node-version",
-		help="NodeJS Version, default: 24.14.0",
-		default="24.14.0",
+		help="NodeJS Version, default: 24.15.0",
+		default="24.15.0",
 	)
 	parser.add_argument(
 		"-x",
