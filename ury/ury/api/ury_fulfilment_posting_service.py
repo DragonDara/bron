@@ -2,15 +2,37 @@
 
 This is the minimal authoritative slice for V3 stock posting:
 
-- READY creates one durable ``URY Fulfilment Posting Intent`` per KOT item.
+This service owns exactly one of the two stock ledgers in a POS sale: the
+PRODUCTION ledger. The sale ledger is owned by native ERPNext, always, and
+is posted once per session at POS Closing Entry via the consolidated Sales
+Invoice's ``update_stock = 1``. Nothing here suppresses or replaces it.
+
+- READY creates one durable ``URY Fulfilment Posting Intent`` per KOT item,
+  for MADE_TO_ORDER items only. PRE_PRODUCED items had their Manufacture
+  entry posted ahead of time by the batch path; DIRECT_RETAIL items are not
+  produced at all. Both post nothing here and are deducted once, by the
+  sale, at closing.
 - The worker claims intents with a row lock and short lease.
-- ERPNext stock movement is a submitted Stock Entry: ``Material Issue`` for
-  PRE_PRODUCED/DIRECT_RETAIL (consumes the already-made selling item), or
-  ``Manufacture`` for MADE_TO_ORDER (consumes raw-material components and
-  receives the selling item into the same production department warehouse).
+- ERPNext stock movement is a submitted ``Manufacture`` Stock Entry, and only
+  ever that: it consumes raw-material BOM components and receives the
+  selling item into the same production department warehouse the sale later
+  deducts it from, so the production round trip nets to zero there. It never
+  issues the selling item -- see ``_stock_entry_items``.
 - Reservation fulfilment happens only after the Stock Entry has submitted.
 - Replays recover from an already-submitted Stock Entry instead of creating
   another one.
+
+Returns / credit notes (G-05, decided): a return never reverses a production
+Stock Entry created here or by the batch path. Only the native sale-side
+ledger is affected -- `pos_invoice_merge_log.py` sets `update_stock=1` on the
+consolidated credit note, so ERPNext genuinely credits the finished good back
+into the warehouse on its own. A returned dish does not un-cook itself: the
+raw materials this service's Manufacture Stock Entry consumed are genuinely
+gone, and that Stock Entry is left submitted and untouched. See
+`ury.ury.hooks.ury_sales_invoice.fulfil_reservations_on_consolidation` for
+the corresponding reservation-side statement of this policy, and
+tracks/sa-pos-stock-phase2/ARCHITECTURE_POS_STOCK_AUTHORITY.md (G-05) /
+PLAN.md (T7) for the full decision record.
 """
 
 from __future__ import annotations
@@ -23,10 +45,15 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, flt, now, now_datetime
 
-from ury.ury.api.ury_reservation_service import FULFILLED, RESERVED, fulfil_reservation
+from ury.ury.api.ury_reservation_service import (
+	QTY_TOLERANCE,
+	RESERVED,
+	fulfil_reservation_if_pending,
+	group_reserved_top_level_qty,
+)
 from ury.ury.api.ury_kot_execution_service import READY, SERVED
 from ury.ury.api.ury_bom_compiler import publish_component_stock_fanout
-from ury.ury.api.ury_feature_flags import is_pos_stock_authority_flag_enabled
+from ury.ury.api.ury_feature_flags import is_pos_stock_authority_flag_enabled, ITEM_EXECUTION_DOCTYPE
 
 
 INTENT_DOCTYPE = "URY Fulfilment Posting Intent"
@@ -72,7 +99,7 @@ def _authorize_posting(actor, execution_doc):
 	roles = set(frappe.get_roles(actor))
 	if not roles.intersection(POSTING_ROLES):
 		raise frappe.PermissionError(_("You are not permitted to post fulfilment stock"))
-	if not frappe.has_permission(KOT_ITEM_DOCTYPE, "read", execution_doc, user=actor):
+	if not frappe.has_permission(ITEM_EXECUTION_DOCTYPE, "read", execution_doc, user=actor):
 		raise frappe.PermissionError(_("You are not permitted to post this fulfilment item"))
 
 
@@ -120,7 +147,69 @@ def _kot_order_ref(kot):
 	return invoice or kot
 
 
-def _reservation_rows(order_ref, item_code, branch, company):
+def _row_reservation_line_key(row):
+	"""Best-effort read of the order-time `reservation_line_key` off a reservation row.
+
+	`reservation_line_key` is not a column on `URY Stock Reservation`; it is
+	frozen into the row's `audit_log` JSON by
+	`ury_order_reservation_service._reconcile_line` (see its `frozen_context`),
+	which is why this is a Python-side read rather than a SQL filter.
+	Deliberately tolerant -- a row with a missing/unparseable/legacy audit log
+	simply has no line key, and `_scope_rows_to_line` treats that as "not
+	line-bound" rather than an error. Hard validation of the frozen context
+	still happens per selected row in `_reservation_audit_context`.
+	"""
+	try:
+		entries = json.loads(row.get("audit_log") or "[]")
+	except (TypeError, ValueError):
+		return None
+	for entry in reversed(entries or []):
+		context = entry.get("frozen_context")
+		if context:
+			return context.get("reservation_line_key")
+	return None
+
+
+def _scope_rows_to_line(rows, reservation_line_key):
+	"""Narrow `(order_ref, item_code)` reservation rows to one POS line's groups.
+
+	B03: the same item_code can be live on one order more than once -- two
+	separate POS lines of the same dish, or an original line plus a delta KOT
+	raised by a quantity change. Each such line owns its OWN reservation group
+	(`ury_order_reservation_service._reconcile_line` releases and rebuilds per
+	`reservation_line_key`), but this service used to look reservations up by
+	`(order_ref, item_code)` alone. That pooled every line's groups together,
+	so serving one KOT could consume, and Fulfil, the reservation group that
+	rightfully belonged to the other line -- leaving the second KOT to be
+	served with nothing Reserved (`RESERVATION_NOT_FOUND`), or blocking the
+	first outright with `AMBIGUOUS_RESERVATION_BINDING`.
+
+	The narrowing is deliberately one-directional and cannot introduce a false
+	negative:
+
+	- No line key on the KOT item (legacy/pre-migration KOTs, or any creation
+	  path that does not set `URY KOT Items.reservation_line_key`): no
+	  filtering at all, today's exact behaviour.
+	- Line key present and matching rows exist: those rows only. Every row of
+	  one reservation group shares one frozen context -- the group is created
+	  by a single `create_reservation` call -- so a match selects WHOLE groups,
+	  never a partial one.
+	- Line key present but nothing matches (reservations predating the line
+	  key being frozen, or a line whose group was rebuilt under a different
+	  key): fall back to the unfiltered set rather than failing closed.
+
+	So the result is either identical to the old behaviour or a strict subset
+	consisting of whole groups, which means this can only ever turn an
+	ambiguous/cross-consuming lookup into a correct one -- it can never turn a
+	previously-successful lookup into a failure.
+	"""
+	if not reservation_line_key:
+		return rows
+	scoped = [row for row in rows if _row_reservation_line_key(row) == reservation_line_key]
+	return scoped or rows
+
+
+def _reservation_rows(order_ref, item_code, branch, company, reservation_line_key=None):
 	rows = frappe.get_all(
 		RESERVATION_DOCTYPE,
 		filters={
@@ -147,6 +236,7 @@ def _reservation_rows(order_ref, item_code, branch, company):
 			"RESERVATION_NOT_FOUND",
 			_("No Reserved stock reservation found for order {0}, item {1}").format(order_ref, item_code),
 		)
+	rows = _scope_rows_to_line(rows, reservation_line_key)
 	groups = {row.get("reservation_group") or row.get("name") for row in rows}
 	if len(groups) > 1:
 		raise FulfilmentPostingError(
@@ -237,6 +327,37 @@ def _next_fulfilment_sequence(branch, kot, kot_item, accepted_revision, reservat
 	return int(rows[0].get("fulfilment_sequence") or 0) + 1
 
 
+def _fg_warehouse(snapshots):
+	"""Resolve the warehouse the finished good is received into.
+
+	Each snapshot's `warehouse` is the value
+	`ury_order_reservation_service._reserve_line` froze into the reservation's
+	audit log at order time, straight from `_warehouse_for_context(context)`.
+	Reading the frozen value rather than re-resolving the context live is
+	deliberate: the posting runs minutes later, in a background worker, and
+	must use the warehouse the order was accepted and reserved against even
+	if the item's production configuration has been edited since.
+
+	Every component of one line resolves through that one context and
+	therefore shares one warehouse today. Rather than assume that silently --
+	which is what reading `components[0]` did -- assert it. More than one
+	distinct warehouse means components are being sourced across departments
+	(e.g. a central raw store), and there is no defined answer yet for which
+	of them the finished good belongs in; fail closed instead of picking one
+	arbitrarily and posting the FG somewhere the sale will not find it.
+	"""
+	warehouses = {snapshot.get("warehouse") for snapshot in snapshots if snapshot.get("warehouse")}
+	if len(warehouses) != 1:
+		raise FulfilmentPostingError(
+			"AMBIGUOUS_FINISHED_GOODS_WAREHOUSE",
+			_(
+				"Reserved rows for this KOT item resolve to {0} warehouses; "
+				"the finished good's warehouse cannot be determined"
+			).format(len(warehouses)),
+		)
+	return warehouses.pop()
+
+
 def _freeze_payload(execution_doc, actor):
 	execution_state = execution_doc.get("state") or execution_doc.get("execution_state")
 	if execution_state not in READY_STATES:
@@ -246,9 +367,23 @@ def _freeze_payload(execution_doc, actor):
 				execution_doc.kot, execution_state or "UNKNOWN"
 			),
 		)
-	_kot_item, item_code, accepted_qty = _kot_item_doc(execution_doc.kot_item)
+	kot_item_doc, item_code, accepted_qty = _kot_item_doc(execution_doc.kot_item)
 	order_ref = _kot_order_ref(execution_doc.kot)
-	rows = _reservation_rows(order_ref, item_code, execution_doc.branch, execution_doc.company)
+	# B03: bind this posting to the reservation group owned by THIS KOT
+	# line, not to every group the order happens to hold for this item_code.
+	# `URY KOT Items.reservation_line_key` is written at KOT creation from the
+	# same `_line_key` derivation the reservation side freezes (see
+	# `ury_kot_generate._line_keyed_items` / `create_kot_doc`), so the two
+	# sides already agree on line identity -- the consumption side simply was
+	# not using it. Absent (legacy KOT item), `_scope_rows_to_line` is a no-op.
+	reservation_line_key = kot_item_doc.get("reservation_line_key")
+	rows = _reservation_rows(
+		order_ref,
+		item_code,
+		execution_doc.branch,
+		execution_doc.company,
+		reservation_line_key=reservation_line_key,
+	)
 	snapshots = [_reservation_snapshot(row, item_code) for row in rows]
 	policies = {snapshot["policy"] for snapshot in snapshots}
 	if len(policies) != 1:
@@ -258,12 +393,53 @@ def _freeze_payload(execution_doc, actor):
 		)
 	policy = snapshots[0]["policy"]
 	reservation_group = rows[0].get("reservation_group") or rows[0].get("name")
+
+	# B03b: this KOT item's SHARE of the reservation group, not the whole group.
+	#
+	# One group can legitimately cover several KOT items. A straight quantity
+	# bump on one POS line (Coffee 1 -> 2) does not create a second group --
+	# `ury_order_reservation_service._reconcile_line` releases the line's group
+	# and creates ONE replacement sized for the new TOTAL, under the same
+	# `reservation_line_key` -- and the delta KOT raised for the +1 inherits
+	# that same line key. So B03's line scoping correctly binds BOTH the
+	# original KOT item and the delta KOT item to that one group, whose
+	# component rows are sized for qty 2.
+	#
+	# Freezing those rows verbatim, as this did, made each of the two postings
+	# consume raw materials for the full 2 while receiving a finished good for
+	# its own 1: components deducted twice over. Scale each component to
+	# `accepted_qty / reserved_total` so the two postings together consume
+	# exactly what the group reserved. `fulfil_reservation_if_pending` performs
+	# the matching cumulative accounting on the group's status.
+	#
+	# Whole-group behaviour is preserved bit-for-bit wherever the share is 1.0
+	# -- the single-KOT case, and B03's two-separate-lines case (two groups of
+	# one KOT each) -- because `x * 1.0 == x` exactly for floats, and likewise
+	# for a legacy group whose reserved total is unknown.
+	reserved_group_qty = group_reserved_top_level_qty(rows)
+	line_share = 1.0
+	if reserved_group_qty:
+		if accepted_qty - reserved_group_qty > QTY_TOLERANCE:
+			# The KOT item claims more than the line ever reserved. Posting it
+			# would consume beyond the reservation, and silently scaling it
+			# down would under-produce against the ticket. Neither is a
+			# defensible guess, so fail closed and observably: the intent lands
+			# FAILED with this reason code rather than corrupting the ledger.
+			raise FulfilmentPostingError(
+				"KOT_QTY_EXCEEDS_RESERVATION",
+				_(
+					"KOT item {0} is for {1} of {2}, but its reservation group {3} "
+					"reserves only {4}; posting is blocked until the line is resolved"
+				).format(execution_doc.kot_item, accepted_qty, item_code, reservation_group, reserved_group_qty),
+			)
+		line_share = accepted_qty / reserved_group_qty
+
 	components = [
 		{
 			"reservation_ref": snapshot["reservation_ref"],
 			"reservation_group": snapshot["reservation_group"],
 			"item_code": snapshot["component_item"],
-			"qty": snapshot["qty"],
+			"qty": flt(snapshot["qty"]) * line_share,
 			"s_warehouse": snapshot["warehouse"],
 		}
 		for snapshot in snapshots
@@ -273,7 +449,25 @@ def _freeze_payload(execution_doc, actor):
 			"UNEXPECTED_FINISHED_GOODS_RESERVATION",
 			_("{0} fulfilment for KOT item {1} must resolve to one stock row").format(policy, execution_doc.kot_item),
 		)
-	accepted_revision = execution_doc.get("idempotency_key") or "current"
+	# Which VERSION OF THE LINE this posting is accepted against.
+	#
+	# This used to read `idempotency_key`, but that field is a per-RPC replay
+	# token: the client mints a fresh UUID for every call and `_transition`
+	# rewrites the row's copy on every state change. Freezing it here meant
+	# the intent carried the READY call's UUID while the row went on to carry
+	# the SERVED call's UUID, so the G-07 gate in `ury_feature_flags` found a
+	# mismatch on every normally served item and falsely blocked the invoice.
+	# `revision_key` is stamped once at seed time and advanced only by
+	# `ury_kot_item_execution_service.bump_item_execution_revision` (a genuine
+	# edit / re-fire of the line), which is exactly the identity this needs.
+	#
+	# The `idempotency_key` fallback covers rows seeded before `revision_key`
+	# existed and not yet touched by the v3_21 backfill patch; the gate skips
+	# the revision comparison for such rows rather than acting on a value it
+	# knows is not a revision.
+	accepted_revision = (
+		execution_doc.get("revision_key") or execution_doc.get("idempotency_key") or "current"
+	)
 	fulfilment_sequence = _next_fulfilment_sequence(
 		execution_doc.branch,
 		execution_doc.kot,
@@ -296,6 +490,33 @@ def _freeze_payload(execution_doc, actor):
 		"production_configuration": snapshots[0].get("production_configuration"),
 		"production_policy": policy,
 		"reservation_group": reservation_group,
+		# The POS line this KOT item belongs to, as agreed between the
+		# reservation and KOT layers. Recorded for traceability/debugging of
+		# which line a posting was bound to; None for legacy KOT items that
+		# carry no line key (see `_scope_rows_to_line`).
+		"reservation_line_key": reservation_line_key,
+		# B03b traceability: the group's total reserved top-level quantity, and
+		# the fraction of it this KOT item's components were scaled to. None/1.0
+		# means this posting consumes the whole group, which is the single-KOT
+		# case and every legacy group. Recorded so a Stock Entry's component
+		# quantities can be reconciled back to the reservation that authorised
+		# them without re-deriving the ratio.
+		"reservation_group_qty": reserved_group_qty,
+		"reservation_line_share": line_share,
+		# The warehouse the finished good is received into, resolved
+		# explicitly rather than inferred from a component row. Frozen here,
+		# at the same moment and from the same order-time context as every
+		# component's own warehouse, so the posting that runs minutes later
+		# in a background worker uses the warehouse the order was accepted
+		# against -- not whatever the item's configuration says by then.
+		#
+		# This is the warehouse the sale later deducts from: the same
+		# `_warehouse_for_context(context)` resolution that
+		# `ury_order_reservation_service._reserve_line` and
+		# `ury_order._department_warehouse_for_item` use, so the FG received
+		# here and the FG issued by the consolidated Sales Invoice at closing
+		# land in one warehouse and net out.
+		"fg_warehouse": _fg_warehouse(snapshots),
 		"components": components,
 		"ready_at": execution_doc.get("ready_at") or now(),
 		"execution_state": execution_state,
@@ -359,6 +580,39 @@ def create_or_get_posting_intent_for_ready(execution_doc, actor=None):
 				"for this branch before fulfilment posting can be authoritative."
 			),
 		)
+	# Production posting is for MADE_TO_ORDER items and nothing else.
+	#
+	# The production event and the sale event own different quantities:
+	# production turns raw components into a finished good, the sale issues
+	# that finished good at closing. For a made-to-order item that is a real,
+	# per-order transformation that only this service can express, so it
+	# posts a Manufacture entry here. For every other policy there is nothing
+	# for this service to post:
+	#
+	#   PRE_PRODUCED  -- its Manufacture entry was already posted, ahead of
+	#                    time, by the batch path (ury_batch_manufacture_service
+	#                    start_batch / bulk_production), into the same
+	#                    direct_retail_warehouse the sale later deducts from.
+	#                    READY here is a plating milestone with no stock
+	#                    semantics.
+	#   DIRECT_RETAIL -- there is no production at all, by definition.
+	#
+	# Posting for those policies was the double-deduction bug: the entry
+	# issued the SELLING ITEM from the department warehouse at READY, and
+	# closing's consolidated Sales Invoice then issued the same item from the
+	# same warehouse again. Same item, same warehouse, twice. See also the
+	# structural no-self-issue assertion in `_stock_entry_items`, which makes
+	# that shape unrepresentable rather than merely absent.
+	if payload["production_policy"] != MADE_TO_ORDER:
+		return {
+			"name": None,
+			"status": "SKIPPED_NOT_MADE_TO_ORDER",
+			"production_policy": payload["production_policy"],
+			"idempotency_key": payload["idempotency_key"],
+			"erpnext_stock_entry": None,
+			"idempotent_replay": False,
+		}
+
 	existing_name = frappe.db.get_value(INTENT_DOCTYPE, {"idempotency_key": payload["idempotency_key"]}, "name")
 	if existing_name:
 		return _intent_result(frappe.get_doc(INTENT_DOCTYPE, existing_name), idempotent=True)
@@ -488,10 +742,33 @@ def _find_existing_stock_entry(intent_name):
 
 
 def _stock_entry_items(payload):
+	"""Build the Stock Entry rows for one production posting.
+
+	Enforces the invariant that makes double-ownership of a quantity
+	structurally impossible: **the production event never issues a quantity
+	of the selling item; it only issues quantities of items strictly below
+	the selling item in the BOM.** The selling item may only ever appear as
+	the received finished good.
+
+	The sale issues the selling item, once, at closing. If a consumption row
+	here named the selling item too, that quantity would be deducted twice
+	from the same warehouse -- which is exactly what the PRE_PRODUCED /
+	DIRECT_RETAIL `Material Issue` posting did before it was removed. The
+	assertion below makes that shape unrepresentable, so the bug class cannot
+	be reintroduced by a future caller or policy.
+	"""
 	items = []
 	for row in payload.get("components") or []:
 		if not row.get("item_code") or not row.get("s_warehouse") or flt(row.get("qty")) <= 0:
 			raise FulfilmentPostingError("INVALID_STOCK_ROW", _("Frozen stock row is incomplete"))
+		if row["item_code"] == payload.get("item_code"):
+			raise FulfilmentPostingError(
+				"SELF_ISSUE_NOT_ALLOWED",
+				_(
+					"Production posting for {0} may not issue the selling item itself; "
+					"the sale deducts it at POS closing. Only BOM components may be consumed here."
+				).format(payload.get("item_code")),
+			)
 		items.append(
 			{
 				"item_code": row["item_code"],
@@ -500,7 +777,15 @@ def _stock_entry_items(payload):
 			}
 		)
 	if payload.get("production_policy") == MADE_TO_ORDER:
-		target_warehouse = (payload.get("components") or [{}])[0].get("s_warehouse")
+		# The finished good's warehouse is resolved once, at freeze time, from
+		# the order-time production context (`_warehouse_for_context`) and
+		# carried on the payload. It used to be read off components[0], which
+		# happened to be right only because every component of one line shares
+		# one warehouse today -- an accident that would break silently the
+		# moment components can be sourced from more than one warehouse (e.g.
+		# a central raw store). Read the resolved value; express the invariant
+		# rather than depend on the coincidence.
+		target_warehouse = payload.get("fg_warehouse")
 		if not target_warehouse or not payload.get("item_code") or flt(payload.get("accepted_qty")) <= 0:
 			raise FulfilmentPostingError("INVALID_STOCK_ROW", _("Frozen stock row is incomplete"))
 		items.append(
@@ -527,8 +812,23 @@ def _submit_stock_entry(intent, payload):
 	existing = intent.get("erpnext_stock_entry") or _find_existing_stock_entry(intent.name)
 	if existing:
 		return existing
-	is_manufacture = payload.get("production_policy") == MADE_TO_ORDER
-	stock_entry_type = "Manufacture" if is_manufacture else "Material Issue"
+	# This pipeline only ever emits `Manufacture` entries. The `Material
+	# Issue` branch that used to live here existed solely to serve
+	# PRE_PRODUCED and DIRECT_RETAIL, which post nothing at READY at all --
+	# their finished-good stock is created ahead of time by the batch path,
+	# or not produced at all, and either way the sale deducts it once at
+	# closing. A non-MADE_TO_ORDER payload reaching here means an intent was
+	# created that never should have been, so fail closed rather than guess a
+	# purpose.
+	if payload.get("production_policy") != MADE_TO_ORDER:
+		raise FulfilmentPostingError(
+			"UNSUPPORTED_PRODUCTION_POLICY",
+			_(
+				"Production posting is only defined for MADE_TO_ORDER items; "
+				"{0} items are deducted by the sale at POS closing and post nothing here."
+			).format(payload.get("production_policy") or "unconfigured"),
+		)
+	stock_entry_type = "Manufacture"
 	doc = frappe.get_doc(
 		{
 			"doctype": "Stock Entry",
@@ -546,33 +846,37 @@ def _submit_stock_entry(intent, payload):
 	return doc.name
 
 
-def _reservation_is_fulfilled(reservation_group):
-	"""Locking check for whether every row in `reservation_group` is already
-	FULFILLED, used to decide whether `fulfil_reservation` still needs to run.
+def _fulfil_reservation_once(payload):
+	"""Fulfil THIS POSTING'S SHARE of its reservation group, exactly once.
 
-	Runs after `_claim_intent` locked the posting intent row, but this reads
-	a different table (`URY Stock Reservation`) that lock does not cover. A
-	plain `get_all` can be served from this transaction's pinned consistent
-	read view and miss a concurrent worker's already-committed fulfilment,
-	risking a duplicate `fulfil_reservation` call. `FOR UPDATE` forces a read
-	of (and lock on) the latest committed rows on this same connection.
+	Delegates to the shared `fulfil_reservation_if_pending` guard rather than
+	doing its own check-then-call: the consolidated Sales Invoice handler
+	(`ury.ury.hooks.ury_sales_invoice.fulfil_reservations_on_consolidation`)
+	fulfils the same groups at closing for every sale in both tiers, so the
+	two can race on one group and BOTH must be no-ops on an already-Fulfilled
+	group. Keeping one implementation of that rule means they cannot drift
+	apart.
+
+	B03b: the share, not the whole group. One group can cover several KOT items
+	(an original line plus the delta KOT of a quantity bump -- see
+	`_freeze_payload`), and each posts its own Stock Entry for its own
+	quantity. Passing this posting's identity and quantity lets the guard
+	accumulate them and flip the group to `Fulfilled` only once the last
+	sharing KOT item has posted, instead of the first one closing the group and
+	stranding its siblings with `RESERVATION_NOT_FOUND`.
+
+	The contributor identity is the posting intent's `idempotency_key`, which
+	is unique per (branch, kot, kot_item, accepted_revision,
+	fulfilment_sequence) and stable across retries -- so a replayed worker
+	contributes once, and two distinct KOT items never collide. The quantity is
+	`accepted_qty`, in the same top-level item units as the group's reserved
+	total.
 	"""
-	rows = frappe.db.sql(
-		f"""
-		SELECT status
-		FROM `tab{RESERVATION_DOCTYPE}`
-		WHERE reservation_group = %(reservation_group)s
-		FOR UPDATE
-		""",
-		{"reservation_group": reservation_group},
-		as_dict=True,
+	return fulfil_reservation_if_pending(
+		payload["reservation_group"],
+		contributor=payload.get("idempotency_key"),
+		contributed_qty=payload.get("accepted_qty"),
 	)
-	return bool(rows) and all(row.get("status") == FULFILLED for row in rows)
-
-
-def _fulfil_reservation_once(reservation_group):
-	if not _reservation_is_fulfilled(reservation_group):
-		fulfil_reservation(reservation_group)
 
 
 def _find_existing_fulfilment(payload):
@@ -669,7 +973,7 @@ def process_posting_intent(intent_name):
 			with _service_mutation():
 				intent.save(ignore_permissions=False)
 		with _service_mutation():
-			_fulfil_reservation_once(payload["reservation_group"])
+			_fulfil_reservation_once(payload)
 
 		# Emit realtime events (cheap component-level + rich fan-out) for each
 		# distinct component_item in the stock entry.

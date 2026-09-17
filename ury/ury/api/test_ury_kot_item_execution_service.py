@@ -7,12 +7,15 @@ from frappe.tests.utils import FrappeTestCase
 
 from ury.ury.api.ury_kot_item_execution_service import (
 	IN_PREPARATION,
+	INVALID_EXECUTION_TRANSITION,
 	ITEM_EXECUTION_DOCTYPE,
 	KOT_EXECUTION_DOCTYPE,
 	QUEUED,
 	READY,
 	SERVED,
+	ItemExecutionError,
 	_attach_ready_posting_intent,
+	bump_item_execution_revision,
 	get_kot_execution_state,
 	mark_item_ready,
 	seed_kot_item_executions,
@@ -164,6 +167,39 @@ class _ExecutionHarness:
 		return doc
 
 
+class TestServeItemExecutionBlocksCancelledKot(FrappeTestCase):
+	def _serve_with_kot_type(self, kot_type):
+		with patch(f"{MODULE}._kot_for_item", return_value="URY KOT-1"), patch(
+			f"{MODULE}.frappe.db.get_value", return_value=kot_type
+		), patch(f"{MODULE}._transition") as mock_transition:
+			serve_item_execution("KOTITEM-1", "serve-1")
+		return mock_transition
+
+	def test_rejects_cancelled_kot(self):
+		with patch(f"{MODULE}._kot_for_item", return_value="URY KOT-1"), patch(
+			f"{MODULE}.frappe.db.get_value", return_value="Cancelled"
+		), patch(f"{MODULE}._transition") as mock_transition:
+			with self.assertRaises(ItemExecutionError) as ctx:
+				serve_item_execution("KOTITEM-1", "serve-1")
+			self.assertEqual(ctx.exception.reason_code, INVALID_EXECUTION_TRANSITION)
+			mock_transition.assert_not_called()
+
+	def test_rejects_partially_cancelled_kot(self):
+		with patch(f"{MODULE}._kot_for_item", return_value="URY KOT-1"), patch(
+			f"{MODULE}.frappe.db.get_value", return_value="Partially cancelled"
+		), patch(f"{MODULE}._transition") as mock_transition:
+			with self.assertRaises(ItemExecutionError) as ctx:
+				serve_item_execution("KOTITEM-1", "serve-1")
+			self.assertEqual(ctx.exception.reason_code, INVALID_EXECUTION_TRANSITION)
+			mock_transition.assert_not_called()
+
+	def test_allows_non_cancelled_kot(self):
+		mock_transition = self._serve_with_kot_type("New Order")
+		mock_transition.assert_called_once_with(
+			"KOTITEM-1", SERVED, "serve-1", "served_by", "served_at", "serve"
+		)
+
+
 class TestKotItemExecution(FrappeTestCase):
 	def setUp(self):
 		patcher = patch(f"{MODULE}.frappe.utils.now", return_value="2024-01-01 00:00:00")
@@ -213,6 +249,95 @@ class TestKotItemExecution(FrappeTestCase):
 		self.assertEqual(harness.docs[KOT_EXECUTION_DOCTYPE]["KOTEXEC-1"]["state"], READY)
 		self.assertEqual(json.loads(harness.created[0]["audit_log"])[0]["event"], "seed")
 
+	def _drive_lifecycle(self, harness, calls):
+		"""Seed one KOT and run `calls` (fn, idempotency_key) against item 1."""
+		with patch(f"{MODULE}.frappe.db.exists", side_effect=harness.exists), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=harness.get_doc
+		), patch(f"{MODULE}.frappe.get_all", side_effect=harness.get_all), patch(
+			f"{MODULE}.frappe.db.sql", side_effect=harness.sql
+		), patch(
+			f"{MODULE}.frappe.db.get_value",
+			return_value=frappe._dict({"branch": "BR-1", "production": "PU-1"}),
+		), patch(
+			f"{MODULE}._attach_ready_posting_intent", side_effect=lambda result, actor: result
+		), patch(f"{MODULE}.frappe.get_roles", return_value=["Chef"]), patch(
+			"ury.ury.api.ury_kot_execution_service._require_kot_branch_scope"
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			seed_kot_item_executions("URY KOT-1")
+			for fn, key in calls:
+				fn("KOTITEM-1", idempotency_key=key) if key else fn("KOTITEM-1")
+
+	def _row(self, harness):
+		return next(
+			doc
+			for doc in harness.docs[ITEM_EXECUTION_DOCTYPE].values()
+			if doc["kot_item"] == "KOTITEM-1"
+		)
+
+	def test_revision_key_is_stamped_at_seed_and_differs_from_idempotency_key(self):
+		harness = _ExecutionHarness()
+		self._drive_lifecycle(harness, [])
+		row = self._row(harness)
+		self.assertTrue(row.get("revision_key"))
+		# The two fields answer different questions and must not be aliases:
+		# `idempotency_key` is seeded to the kot_item name as a replay token,
+		# `revision_key` is a minted line-revision identity.
+		self.assertNotEqual(row["revision_key"], row["idempotency_key"])
+
+	def test_state_transitions_never_advance_revision_key(self):
+		"""The bug: `_transition` rewrites `idempotency_key` on EVERY state
+		change, including READY -> SERVED, and the G-07 gate was reading that
+		field as the line's revision. The client sends a different key per
+		RPC, so the row's key after a serve can never equal the value frozen
+		onto the READY-time posting intent -- every normally served item
+		looked "stale" at POS Invoice submit.
+
+		`revision_key` must be inert across the whole normal lifecycle.
+		"""
+		harness = _ExecutionHarness()
+		self._drive_lifecycle(
+			harness,
+			[
+				(start_item_execution, "start-uuid"),
+				(mark_item_ready, "ready-uuid"),
+				(serve_item_execution, "serve-uuid"),
+			],
+		)
+		row = self._row(harness)
+		self.assertEqual(row["state"], SERVED)
+		# The replay token tracked the last RPC, as it always has.
+		self.assertEqual(row["idempotency_key"], "serve-uuid")
+		# The revision did not move: nothing about the LINE changed.
+		self.assertEqual(row["revision_key"], harness.created[0]["revision_key"])
+
+	def test_bump_advances_revision_key_for_a_genuine_re_fire(self):
+		"""The only writer of `revision_key`: a real edit / re-fire of the
+		line. This is what keeps G-07's revision half meaningful after the
+		fix -- a posting frozen against the previous revision is still
+		correctly detected as stale."""
+		harness = _ExecutionHarness()
+		self._drive_lifecycle(
+			harness,
+			[(start_item_execution, "start-uuid"), (mark_item_ready, "ready-uuid")],
+		)
+		before = self._row(harness)["revision_key"]
+		with patch(f"{MODULE}.frappe.db.exists", side_effect=harness.exists), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=harness.get_doc
+		), patch(f"{MODULE}.frappe.get_all", side_effect=harness.get_all), patch(
+			f"{MODULE}.frappe.db.sql", side_effect=harness.sql
+		), patch(f"{MODULE}.frappe.get_roles", return_value=["Chef"]), patch(
+			"ury.ury.api.ury_kot_execution_service._require_kot_branch_scope"
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			result = bump_item_execution_revision("KOTITEM-1", reason="re_fire")
+		row = self._row(harness)
+		self.assertNotEqual(row["revision_key"], before)
+		self.assertEqual(result["revision_key"], row["revision_key"])
+		# A re-fire is not a state change; the replay token is untouched.
+		self.assertEqual(row["idempotency_key"], "ready-uuid")
+		self.assertEqual(json.loads(row["audit_log"])[-1]["event"], "re_fire")
+
 	def test_seed_on_submit_uses_kot_name_not_document(self):
 		"""Regression: the URY KOT on_submit hook was calling
 		seed_kot_item_executions(doc) with the full Document instead of
@@ -246,8 +371,29 @@ class TestAttachReadyPostingIntent(FrappeTestCase):
 
 	def test_skips_posting_intent_when_flag_is_off(self):
 		result = {"name": "EXEC-1", "branch": "Branch A", "company": "Company A", "idempotent_replay": False}
+		fake_policy = frappe._dict({"realtime_production_posting_enabled": False})
 		with patch(
-			"ury.ury.api.ury_feature_flags.is_pos_stock_authority_flag_enabled", return_value=False
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy", return_value=fake_policy
+		) as mock_policy, patch(f"{MODULE}.frappe.get_doc") as mock_get_doc, patch(
+			f"{MODULE}.create_or_get_posting_intent_for_ready", create=True
+		) as mock_create:
+			returned = _attach_ready_posting_intent(dict(result), actor="chef@example.com")
+
+		mock_policy.assert_called_once_with(branch="Branch A", company="Company A")
+		mock_get_doc.assert_not_called()
+		mock_create.assert_not_called()
+		self.assertIsNone(returned["posting_intent"])
+		self.assertEqual(returned["posting_intent_status"], "SKIPPED_NATIVE_POS_AUTHORITY")
+
+	def test_skips_posting_intent_when_branch_has_no_policy_row(self):
+		"""A branch with no stock-policy row resolves to all-gates-off (Tier 1
+		default), which must still skip posting quietly -- same behaviour as
+		an explicit False.
+		"""
+		result = {"name": "EXEC-1", "branch": "Branch Unconfigured", "company": "Company A", "idempotent_replay": False}
+		fake_policy = frappe._dict({"realtime_production_posting_enabled": False})
+		with patch(
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy", return_value=fake_policy
 		), patch(f"{MODULE}.frappe.get_doc") as mock_get_doc, patch(
 			f"{MODULE}.create_or_get_posting_intent_for_ready", create=True
 		) as mock_create:
@@ -258,12 +404,32 @@ class TestAttachReadyPostingIntent(FrappeTestCase):
 		self.assertIsNone(returned["posting_intent"])
 		self.assertEqual(returned["posting_intent_status"], "SKIPPED_NATIVE_POS_AUTHORITY")
 
+	def test_skips_posting_intent_when_reservations_only_tier(self):
+		"""reservation_control_enabled=True but realtime_production_posting_enabled
+		still False (the 'reservations only' tier) must also skip posting.
+		"""
+		result = {"name": "EXEC-1", "branch": "Branch A", "company": "Company A", "idempotent_replay": False}
+		fake_policy = frappe._dict(
+			{"reservation_control_enabled": True, "realtime_production_posting_enabled": False}
+		)
+		with patch(
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy", return_value=fake_policy
+		), patch(f"{MODULE}.frappe.get_doc") as mock_get_doc, patch(
+			f"{MODULE}.create_or_get_posting_intent_for_ready", create=True
+		) as mock_create:
+			returned = _attach_ready_posting_intent(dict(result), actor="chef@example.com")
+
+		mock_get_doc.assert_not_called()
+		mock_create.assert_not_called()
+		self.assertEqual(returned["posting_intent_status"], "SKIPPED_NATIVE_POS_AUTHORITY")
+
 	def test_creates_posting_intent_when_flag_is_on(self):
 		result = {"name": "EXEC-1", "branch": "Branch A", "company": "Company A", "idempotent_replay": False}
 		fake_doc = frappe._dict({"name": "EXEC-1"})
+		fake_policy = frappe._dict({"realtime_production_posting_enabled": True})
 		with patch(
-			"ury.ury.api.ury_feature_flags.is_pos_stock_authority_flag_enabled", return_value=True
-		), patch(f"{MODULE}.frappe.get_doc", return_value=fake_doc), patch(
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy", return_value=fake_policy
+		) as mock_policy, patch(f"{MODULE}.frappe.get_doc", return_value=fake_doc), patch(
 			"ury.ury.api.ury_fulfilment_posting_service.create_or_get_posting_intent_for_ready",
 			return_value={"name": "INTENT-1", "status": "PENDING"},
 		) as mock_create, patch(
@@ -271,16 +437,41 @@ class TestAttachReadyPostingIntent(FrappeTestCase):
 		) as mock_enqueue:
 			returned = _attach_ready_posting_intent(dict(result), actor="chef@example.com")
 
+		mock_policy.assert_called_once_with(branch="Branch A", company="Company A")
 		mock_create.assert_called_once_with(fake_doc, actor="chef@example.com")
 		mock_enqueue.assert_called_once_with("INTENT-1")
 		self.assertEqual(returned["posting_intent"], "INTENT-1")
 		self.assertEqual(returned["posting_intent_status"], "PENDING")
 
+	def test_made_to_order_only_restriction_still_holds_with_gate_on(self):
+		"""Even with realtime_production_posting_enabled=True, a PRE_PRODUCED
+		item must not post -- that decision belongs solely to
+		`create_or_get_posting_intent_for_ready` (Phase 0/1 fix), which this
+		repoint must not disturb.
+		"""
+		result = {"name": "EXEC-1", "branch": "Branch A", "company": "Company A", "idempotent_replay": False}
+		fake_doc = frappe._dict({"name": "EXEC-1"})
+		fake_policy = frappe._dict({"realtime_production_posting_enabled": True})
+		with patch(
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy", return_value=fake_policy
+		), patch(f"{MODULE}.frappe.get_doc", return_value=fake_doc), patch(
+			"ury.ury.api.ury_fulfilment_posting_service.create_or_get_posting_intent_for_ready",
+			return_value={"name": None, "status": "SKIPPED_NOT_MADE_TO_ORDER"},
+		) as mock_create, patch(
+			"ury.ury.api.ury_fulfilment_posting_service.enqueue_posting_intent"
+		) as mock_enqueue:
+			returned = _attach_ready_posting_intent(dict(result), actor="chef@example.com")
+
+		mock_create.assert_called_once_with(fake_doc, actor="chef@example.com")
+		mock_enqueue.assert_not_called()
+		self.assertIsNone(returned["posting_intent"])
+		self.assertEqual(returned["posting_intent_status"], "SKIPPED_NOT_MADE_TO_ORDER")
+
 	def test_idempotent_replay_never_touches_posting_intent(self):
 		result = {"name": "EXEC-1", "branch": "Branch A", "company": "Company A", "idempotent_replay": True}
 		with patch(
-			"ury.ury.api.ury_feature_flags.is_pos_stock_authority_flag_enabled"
-		) as mock_flag:
+			"ury.ury.api.ury_stock_policy.get_branch_stock_policy"
+		) as mock_policy:
 			returned = _attach_ready_posting_intent(dict(result), actor="chef@example.com")
-		mock_flag.assert_not_called()
+		mock_policy.assert_not_called()
 		self.assertEqual(returned, result)

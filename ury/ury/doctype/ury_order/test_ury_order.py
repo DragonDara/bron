@@ -9,6 +9,12 @@ from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch, MagicMock
 
 from ury.ury.doctype.ury_order.ury_order import cancel_order, sync_order, price_items_for_invoice, reconcile_order_reservations, _resolve_or_create_pos_invoice, split_bill
+from ury.ury.doctype.ury_order.ury_order import (
+    _backfill_previous_line_keys,
+    _normalize_current_line_keys,
+    _previous_line_snapshot,
+)
+from ury.ury.api.ury_stock_policy import StockPolicy
 
 from unittest.mock import patch, MagicMock
 from ury.ury.doctype.ury_order.ury_order import get_order_invoice
@@ -39,6 +45,19 @@ class TestURYOrderSEC11(FrappeTestCase):
             get_order_invoice(invoiceNo="POS-INV-001")
         self.assertIn("outside your active branch", str(context.exception))
 class TestURYOrder(FrappeTestCase):
+    def setUp(self):
+        # T3: reconcile_order_reservations() is now gated behind
+        # get_branch_stock_policy(...).reservation_control_enabled. These
+        # pre-existing tests all assert reservation-control-ON behavior, so
+        # default the policy to enabled here; individual tests that need to
+        # exercise the OFF/no-row path patch this again locally.
+        patcher = patch(
+            "ury.ury.doctype.ury_order.ury_order.get_branch_stock_policy",
+            return_value=StockPolicy(True, False, False),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
@@ -251,8 +270,13 @@ class TestURYOrder(FrappeTestCase):
         mock_invoice.invoice_printed = 0
         mock_invoice.invoice_created = 1
         previous_item = MagicMock(item_code="ITEM-1", item_name="Item 1", qty=1, name="INVITEM-1")
+        # .get() is a separate mock, not derived from the attributes above --
+        # it must know about item_code too, or sync_order's historic_codes
+        # set (built via prev.get("item_code")) comes back empty and ITEM-1
+        # is wrongly treated as a brand-new code instead of an existing one.
         previous_item.get.side_effect = lambda field, default=None: {
             "reservation_line_key": "INVITEM-1",
+            "item_code": "ITEM-1",
         }.get(field, default)
         mock_invoice.items = [previous_item]
         mock_invoice.waiter = "existing_waiter"
@@ -274,7 +298,9 @@ class TestURYOrder(FrappeTestCase):
         mock_has_permission.return_value = True
         mock_get_branch.return_value = "Test Branch"
 
-        def get_value_side_effect(doctype, filters=None, fieldname=None):
+        def get_value_side_effect(doctype, filters=None, fieldname=None, **kwargs):
+            if doctype == "URY Table" and fieldname == ["restaurant", "branch", "restaurant_room"]:
+                return ("Test Restaurant", "Test Branch", "Main Hall")
             if doctype == "URY Table" and fieldname == ["branch", "restaurant_room"]:
                 return ("Test Branch", "Main Hall")
             if doctype == "URY Menu":
@@ -283,7 +309,16 @@ class TestURYOrder(FrappeTestCase):
 
         mock_get_value.side_effect = get_value_side_effect
 
-        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"):
+        # _require_open_cashier_session() (a fail-closed POS-open check
+        # sync_order() now runs before reservation) wasn't mocked here, so
+        # it hit the real (empty) test DB and threw before this test's own
+        # assertions ever ran. get_restaurant_and_menu_name() also calls the
+        # top-level frappe.get_value() (distinct from frappe.db.get_value,
+        # already mocked above) to unpack (restaurant, branch, room) for
+        # the table -- also unmocked, also hitting the real empty test DB.
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.get_value", return_value=("Restaurant A", "Test Branch", "Main Hall")):
             sync_order(
                 items='[{"item": "ITEM-1", "qty": 3}]',
                 cashier="fake_cashier",
@@ -312,6 +347,164 @@ class TestURYOrder(FrappeTestCase):
             actor="manager@example.com",
         )
         self.assertEqual(events, ["reconcile", "save"])
+
+    @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
+    @patch("ury.ury.doctype.ury_order.ury_order.get_branch_stock_policy")
+    @patch("ury.ury.doctype.ury_order.ury_order.reconcile_order_reservations")
+    @patch("ury.ury.doctype.ury_order.ury_order.kot_execute")
+    @patch("ury.ury.doctype.ury_order.ury_order.price_items_for_invoice")
+    @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_doc")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_roles")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.session")
+    def test_sync_order_skips_reconciliation_when_reservation_control_disabled(
+        self, mock_session, mock_get_roles, mock_get_doc, mock_get_value, mock_has_permission,
+        mock_get_order_invoice, mock_price_items, mock_kot_execute, mock_reconcile,
+        mock_get_branch_stock_policy, mock_get_branch,
+    ):
+        # Tier 1 (or any branch with reservation_control_enabled=False):
+        # reconcile_order_reservations() must not be called at all -- no
+        # reservation row, no side effects.
+        mock_get_branch_stock_policy.return_value = StockPolicy(False, False, False)
+
+        mock_invoice = MagicMock()
+        mock_invoice.name = "POS-INV-001"
+        mock_invoice.branch = "Test Branch"
+        mock_invoice.company = "Company A"
+        mock_invoice.restaurant_table = "Table 1"
+        mock_invoice.invoice_printed = 0
+        mock_invoice.invoice_created = 1
+        previous_item = MagicMock(item_code="ITEM-1", item_name="Item 1", qty=1, name="INVITEM-1")
+        previous_item.get.side_effect = lambda field, default=None: {
+            "reservation_line_key": "INVITEM-1",
+        }.get(field, default)
+        mock_invoice.items = [previous_item]
+        mock_invoice.waiter = "existing_waiter"
+        mock_invoice.creation = "2026-09-03 10:00:00"
+        mock_invoice.selling_price_list = "Standard Selling"
+        mock_invoice.save = MagicMock()
+        mock_invoice.as_dict = MagicMock(return_value={"name": "POS-INV-001"})
+
+        mock_get_order_invoice.return_value = mock_invoice
+        mock_price_items.return_value = [{"item_code": "ITEM-1", "qty": 3}]
+        mock_get_doc.return_value = _make_pos_profile(
+            transfer_role_permissions=("URY Manager",),
+            role_allowed_for_billing=("URY Manager",),
+            remove_items=1,
+        )
+        mock_get_roles.return_value = ["URY Manager"]
+        mock_session.user = "manager@example.com"
+        mock_has_permission.return_value = True
+        mock_get_branch.return_value = "Test Branch"
+
+        def get_value_side_effect(doctype, filters=None, fieldname=None, **kwargs):
+            if doctype == "URY Table" and fieldname == ["restaurant", "branch", "restaurant_room"]:
+                return ("Test Restaurant", "Test Branch", "Main Hall")
+            if doctype == "URY Table" and fieldname == ["branch", "restaurant_room"]:
+                return ("Test Branch", "Main Hall")
+            if doctype == "URY Menu":
+                return "Menu A"
+            return "Test Customer"
+
+        mock_get_value.side_effect = get_value_side_effect
+
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"):
+            sync_order(
+                items='[{"item": "ITEM-1", "qty": 3}]',
+                cashier="fake_cashier",
+                owner="fake_owner",
+                mode_of_payment="Cash",
+                customer="Test Customer",
+                no_of_pax=2,
+                last_invoice=None,
+                waiter="fake_waiter",
+                pos_profile="Test Profile",
+                table="Table 1",
+            )
+
+        mock_reconcile.assert_not_called()
+        mock_invoice.save.assert_called_once()
+
+    @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
+    @patch("ury.ury.doctype.ury_order.ury_order.get_branch_stock_policy")
+    @patch("ury.ury.doctype.ury_order.ury_order.reconcile_order_reservations")
+    @patch("ury.ury.doctype.ury_order.ury_order.kot_execute")
+    @patch("ury.ury.doctype.ury_order.ury_order.price_items_for_invoice")
+    @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_doc")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_roles")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.session")
+    def test_sync_order_skips_reconciliation_for_branch_with_no_policy_row(
+        self, mock_session, mock_get_roles, mock_get_doc, mock_get_value, mock_has_permission,
+        mock_get_order_invoice, mock_price_items, mock_kot_execute, mock_reconcile,
+        mock_get_branch_stock_policy, mock_get_branch,
+    ):
+        # A branch with no `URY Branch Stock Policy` row at all resolves to
+        # POLICY_ALL_OFF per T1's fail-closed design -- must behave
+        # identically to the explicit-OFF case above.
+        mock_get_branch_stock_policy.return_value = StockPolicy(False, False, False)
+
+        mock_invoice = MagicMock()
+        mock_invoice.name = "POS-INV-002"
+        mock_invoice.branch = "Untouched Branch"
+        mock_invoice.company = "Company A"
+        mock_invoice.restaurant_table = "Table 1"
+        mock_invoice.invoice_printed = 0
+        mock_invoice.invoice_created = 1
+        previous_item = MagicMock(item_code="ITEM-1", item_name="Item 1", qty=1, name="INVITEM-1")
+        previous_item.get.side_effect = lambda field, default=None: {
+            "reservation_line_key": "INVITEM-1",
+        }.get(field, default)
+        mock_invoice.items = [previous_item]
+        mock_invoice.waiter = "existing_waiter"
+        mock_invoice.creation = "2026-09-03 10:00:00"
+        mock_invoice.selling_price_list = "Standard Selling"
+        mock_invoice.save = MagicMock()
+        mock_invoice.as_dict = MagicMock(return_value={"name": "POS-INV-002"})
+
+        mock_get_order_invoice.return_value = mock_invoice
+        mock_price_items.return_value = [{"item_code": "ITEM-1", "qty": 3}]
+        mock_get_doc.return_value = _make_pos_profile(
+            transfer_role_permissions=("URY Manager",),
+            role_allowed_for_billing=("URY Manager",),
+            remove_items=1,
+        )
+        mock_get_roles.return_value = ["URY Manager"]
+        mock_session.user = "manager@example.com"
+        mock_has_permission.return_value = True
+        mock_get_branch.return_value = "Untouched Branch"
+
+        def get_value_side_effect(doctype, filters=None, fieldname=None, **kwargs):
+            if doctype == "URY Table" and fieldname == ["restaurant", "branch", "restaurant_room"]:
+                return ("Test Restaurant", "Untouched Branch", "Main Hall")
+            if doctype == "URY Table" and fieldname == ["branch", "restaurant_room"]:
+                return ("Untouched Branch", "Main Hall")
+            if doctype == "URY Menu":
+                return "Menu A"
+            return "Test Customer"
+
+        mock_get_value.side_effect = get_value_side_effect
+
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"):
+            sync_order(
+                items='[{"item": "ITEM-1", "qty": 3}]',
+                cashier="fake_cashier",
+                owner="fake_owner",
+                mode_of_payment="Cash",
+                customer="Test Customer",
+                no_of_pax=2,
+                last_invoice=None,
+                waiter="fake_waiter",
+                pos_profile="Test Profile",
+                table="Table 1",
+            )
+
+        mock_reconcile.assert_not_called()
+        mock_invoice.save.assert_called_once()
 
     @patch("ury.ury.doctype.ury_order.ury_order.get_restaurant_and_menu_name")
     @patch("ury.ury.doctype.ury_order.ury_order._validate_sync_items_against_menu")
@@ -380,6 +573,8 @@ class TestURYOrder(FrappeTestCase):
             # own logic ever runs, masking what this test is actually meant
             # to prove (see the same drift noted for other tests in this
             # file, sa-post-373-review-fixes verification).
+            if doctype == "URY Table" and fieldname == ["restaurant", "branch", "restaurant_room"]:
+                return ("Test Restaurant", "Test Branch", "Main Hall")
             if doctype == "URY Table" and fieldname == ["branch", "restaurant_room"]:
                 return ("Test Branch", "Main Hall")
             if doctype == "URY Menu":
@@ -463,12 +658,11 @@ class TestURYOrder(FrappeTestCase):
         mock_kot_execute.assert_not_called()
         self.assertEqual(mock_invoice.items, [existing_line])
 
-    @patch("ury.ury.doctype.ury_order.ury_order._apply_pos_stock_authority")
     @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_value")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.new_doc")
     def test_resolve_or_create_pos_invoice_sets_branch_for_no_table_new_invoice(
-        self, mock_new_doc, mock_get_value, mock_getBranch, mock_apply_stock_authority
+        self, mock_new_doc, mock_get_value, mock_getBranch
     ):
         """Regression for the 'Order reservation scope is incomplete' bug:
         the no-table (Take Away/Delivery) path built a new invoice but never
@@ -500,6 +694,75 @@ class TestURYOrder(FrappeTestCase):
 
         self.assertIsNone(invoice_name)
         self.assertEqual(invoice.branch, "Test Branch")
+
+    @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.new_doc")
+    def test_resolve_or_create_pos_invoice_sets_naming_series_for_no_table_new_invoice(
+        self, mock_new_doc, mock_db_get_value, mock_get_value, mock_getBranch
+    ):
+        """Regression for B01: a new non-dine-in (Take Away/Aggregator) POS
+        Invoice must resolve `naming_series` from `URY Restaurant.
+        invoice_series_prefix` the same way the dine-in (table) path already
+        does, instead of silently falling back to the POS Profile default.
+        """
+        mock_invoice = MagicMock()
+        mock_invoice.restaurant_table = None
+        mock_new_doc.return_value = mock_invoice
+        mock_getBranch.return_value = "Test Branch"
+        mock_get_value.return_value = None  # no existing open invoice
+
+        def db_get_value_side_effect(doctype, filters=None, fieldname=None, *args, **kwargs):
+            if doctype == "URY Restaurant" and filters == {"branch": "Test Branch"} and fieldname == "name":
+                return "Test Restaurant"
+            if doctype == "URY Restaurant" and filters == "Test Restaurant" and fieldname == "invoice_series_prefix":
+                return "TR-INV-"
+            return "Menu A"
+
+        mock_db_get_value.side_effect = db_get_value_side_effect
+
+        invoice, invoice_name = _resolve_or_create_pos_invoice(
+            table=None, invoiceNo=None, order_type="Take Away", is_payment=None
+        )
+
+        self.assertIsNone(invoice_name)
+        self.assertEqual(invoice.naming_series, "TR-INV-")
+
+    @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.new_doc")
+    def test_resolve_or_create_pos_invoice_naming_series_none_when_unconfigured(
+        self, mock_new_doc, mock_db_get_value, mock_get_value, mock_getBranch
+    ):
+        """A restaurant with no `invoice_series_prefix` configured must not
+        crash order creation for the non-dine-in path -- mirrors the
+        dine-in path's existing behavior of leaving naming_series as
+        whatever frappe.db.get_value returns (None), not inventing a
+        different fallback.
+        """
+        mock_invoice = MagicMock()
+        mock_invoice.restaurant_table = None
+        mock_new_doc.return_value = mock_invoice
+        mock_getBranch.return_value = "Test Branch"
+        mock_get_value.return_value = None
+
+        def db_get_value_side_effect(doctype, filters=None, fieldname=None, *args, **kwargs):
+            if doctype == "URY Restaurant" and filters == {"branch": "Test Branch"} and fieldname == "name":
+                return "Test Restaurant"
+            if doctype == "URY Restaurant" and filters == "Test Restaurant" and fieldname == "invoice_series_prefix":
+                return None
+            return "Menu A"
+
+        mock_db_get_value.side_effect = db_get_value_side_effect
+
+        invoice, invoice_name = _resolve_or_create_pos_invoice(
+            table=None, invoiceNo=None, order_type="Take Away", is_payment=None
+        )
+
+        self.assertIsNone(invoice_name)
+        self.assertIsNone(invoice.naming_series)
 
     @patch("ury.ury.doctype.ury_order.ury_order.reconcile_order_reservations")
     @patch("ury.ury.doctype.ury_order.ury_order.kot_execute")
@@ -536,9 +799,22 @@ class TestURYOrder(FrappeTestCase):
         )
         mock_get_roles.return_value = ["URY Manager"]
         mock_session.user = "manager@example.com"
-        mock_get_value.return_value = "Menu A"
+        # A single blanket return_value would also answer the new-items-on-
+        # menu check's Item.disabled lookup truthily (since "Menu A" is a
+        # non-empty string), wrongly throwing "Item ITEM-1 is disabled".
+        mock_get_value.side_effect = lambda doctype, *args, **kwargs: (
+            0 if doctype == "Item" else "Menu A"
+        )
 
-        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"):
+        # _require_open_cashier_session() (fail-closed POS-open check) and the
+        # new-items-on-menu validation are both real checks sync_order() now
+        # runs before reservation -- neither was mocked here, so they hit the
+        # real (empty) test DB and threw before this test's own assertions
+        # ever ran. Mock both open: a real open POS session, and ITEM-1
+        # available on the menu.
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all", return_value=[frappe._dict(item="ITEM-1")]):
             sync_order(
                 items='[{"item": "ITEM-1", "qty": 1}]',
                 cashier="fake_cashier",
@@ -592,7 +868,7 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_list")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
     def test_price_items_for_invoice_shape(self, mock_get_value, mock_get_list):
-        def get_value_side_effect(doctype, filters, fieldname=None):
+        def get_value_side_effect(doctype, filters, fieldname=None, **kwargs):
             if doctype == "URY Menu Item":
                 return "Starters"
             if doctype == "POS Profile":
@@ -632,6 +908,7 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
             )
 
     @patch("ury.ury.doctype.ury_order.ury_order.reconcile_order_reservations")
+    @patch("ury.ury.doctype.ury_order.ury_order.kot_execute")
     @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")
     @patch("ury.ury.doctype.ury_order.ury_order.price_items_for_invoice")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
@@ -641,7 +918,7 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.session")
     def test_sync_order_delegates_pricing(
         self, mock_session, mock_get_roles, mock_get_doc, mock_get_value, mock_has_permission,
-        mock_price_items, mock_get_order_invoice, mock_reconcile,
+        mock_price_items, mock_get_order_invoice, mock_kot_execute, mock_reconcile,
     ):
         mock_invoice = MagicMock()
         mock_invoice.name = "POS-INV-002"
@@ -667,13 +944,26 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
 
         mock_session.user = "authorized@example.com"
         mock_has_permission.return_value = True
+        # An unconfigured mock_get_value would return a truthy auto-generated
+        # MagicMock for every frappe.db.get_value call -- including the new-
+        # items-on-menu check's Item.disabled lookup, wrongly throwing "Item
+        # Biryani is disabled". Restaurant/menu-name lookups just need a
+        # truthy value; the disabled check specifically needs a falsy one.
+        mock_get_value.side_effect = lambda doctype, *args, **kwargs: (
+            0 if doctype == "Item" else "Menu A"
+        )
 
         priced = [{"item_code": "Biryani", "item_name": "Biryani", "qty": 1, "comment": None,
                    "rate": 150, "price_list_rate": 150, "base_price_list_rate": 150, "cost_center": "CC-1"}]
         mock_price_items.return_value = priced
         mock_reconcile.return_value = {"status": "ok"}
 
-        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"):
+        # _require_open_cashier_session() and the new-items-on-menu check
+        # both run before pricing -- neither was mocked here, so they hit
+        # the real (empty) test DB and threw before pricing was ever reached.
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all", return_value=[frappe._dict(item="Biryani")]):
             sync_order(
                 items=[{"item": "Biryani", "qty": 1}],
                 cashier="fake_cashier", owner="fake_owner", mode_of_payment="Cash",
@@ -1194,7 +1484,12 @@ class TestSyncOrderHardening(FrappeTestCase):
         mock_has_permission.return_value = True
         mock_db_get_value.return_value = None
 
-        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql", return_value=[]):
+        # _require_open_cashier_session() (a fail-closed POS-open check run
+        # before the item-reduction permission check this test targets)
+        # wasn't mocked here, so it threw "POS is closed" first, masking
+        # the frappe.PermissionError this test actually expects.
+        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql", return_value=[]), \
+             patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True):
             with self.assertRaises(frappe.PermissionError) as context:
                 sync_order(
                     items=json.dumps([{"item": "ITEM-1", "qty": 1}]),  # 2 -> 1: a reduction
@@ -1547,6 +1842,16 @@ class _FakeRow:
     def __init__(self, **fields):
         self.__dict__.update(fields)
 
+    def __getattr__(self, name):
+        # A real (unsaved) Frappe child-table row returns None for a field
+        # that was never set (e.g. .name before insert()), rather than
+        # raising AttributeError -- split_bill() relies on this for rows it
+        # constructs itself via _FakeInvoice.append() without a "name" key.
+        # __getattr__ (not __getattribute__) only fires for names Python
+        # couldn't already find in __dict__/the class, so explicitly-set
+        # fields are unaffected.
+        return None
+
     def get(self, key, default=None):
         return getattr(self, key, default)
 
@@ -1612,6 +1917,15 @@ class TestSplitBillReservations(FrappeTestCase):
     rows it relocates to the new sibling invoice -- not just move item rows
     while leaving `URY Stock Reservation` pointed at deleted rows on the
     source invoice and giving the new invoice zero coverage."""
+
+    def setUp(self):
+        # T3: see TestURYOrder.setUp -- same gating default applies here.
+        patcher = patch(
+            "ury.ury.doctype.ury_order.ury_order.get_branch_stock_policy",
+            return_value=StockPolicy(True, False, False),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _build_source(self):
         item_a = _FakeRow(
@@ -1717,10 +2031,20 @@ class TestSplitBillReservations(FrappeTestCase):
         # Item A fully moved off the source invoice; item B stays.
         self.assertEqual([i.item_code for i in source.items], ["ITEM-B"])
         self.assertEqual([i.item_code for i in new_invoice.items], ["ITEM-A"])
-        # The moved row must carry its original stable line identity onto
-        # the new invoice, not a key implicitly derived from its new row
-        # name -- otherwise the reservation lookup below can never find it.
-        self.assertEqual(new_invoice.items[0].get("reservation_line_key"), "ITEM-ROW-A")
+        # As of c84f782a (B02b) + 291e3a40 (B02b-followup),
+        # _copy_invoice_item_fields() deliberately no longer falls back to
+        # a row's own .name for reservation_line_key -- a legacy/unkeyed
+        # row (like item_a here, built with reservation_line_key=None) is
+        # left None on the new invoice too, rather than being given a
+        # bogus name-derived key that a client can never match and that
+        # would poison _backfill_previous_line_keys' claimed set for any
+        # sibling row of the same item_code. The split invoice's own
+        # backfill logic is expected to rescue it on the next real sync,
+        # the same way an un-split legacy invoice already gets rescued --
+        # that rescue path isn't exercised by split_bill()'s mocked
+        # reconcile_order_reservations() call here, so both this row-level
+        # field and the reconciliation call's own key end up None.
+        self.assertIsNone(new_invoice.items[0].get("reservation_line_key"))
 
         self.assertEqual(mock_reconcile.call_count, 2)
         source_call, new_call = mock_reconcile.call_args_list
@@ -1733,16 +2057,17 @@ class TestSplitBillReservations(FrappeTestCase):
         self.assertEqual(previous_keys, {"ITEM-ROW-A": 2, "ITEM-ROW-B": 1})
         self.assertEqual(accepted_keys, {"ITEM-ROW-B": 1})
 
-        # New-invoice-side reconciliation: item A's full quantity is
-        # (re)claimed under the new invoice, under the SAME line key, so
-        # any subsequent posting/lookup keyed on reservation_line_key still
-        # resolves.
+        # New-invoice-side reconciliation: item A's quantity is (re)claimed
+        # under the new invoice. Since item_a started with no persisted
+        # reservation_line_key, its identity here is also None (see above)
+        # -- the backfill-rescue path, not this call, is what's meant to
+        # re-key it against a real client-supplied identity on next sync.
         self.assertEqual(new_call.kwargs["order_ref"], "POS-INV-NEW")
         self.assertEqual(new_call.kwargs["previous_items"], [])
         new_accepted = {
             p["reservation_line_key"]: p["qty"] for p in new_call.kwargs["accepted_items"]
         }
-        self.assertEqual(new_accepted, {"ITEM-ROW-A": 2})
+        self.assertEqual(new_accepted, {None: 2})
 
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.set_value")
@@ -1807,3 +2132,339 @@ class TestSplitBillReservations(FrappeTestCase):
             for call in mock_db_set_value.call_args_list
         )
         self.assertFalse(mixed_reassigned, "a KOT with staying items must not be reassigned wholesale")
+
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.set_value")
+    @patch("ury.ury.doctype.ury_order.ury_order.reconcile_order_reservations")
+    @patch("ury.ury.doctype.ury_order.ury_order._enforce_order_access")
+    @patch("ury.ury.doctype.ury_order.ury_order.getBranch")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.new_doc")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_doc")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
+    def test_split_bill_fulfilment_lookup_no_cross_contamination(
+        self,
+        mock_has_permission,
+        mock_get_doc,
+        mock_new_doc,
+        mock_get_branch,
+        mock_enforce_access,
+        mock_reconcile,
+        mock_db_set_value,
+        mock_get_all,
+    ):
+        """G-14 regression (T9): once split_bill() has re-keyed reservations
+        and reassigned the *fully-moved* KOT's invoice link, simulate both
+        resulting invoices reaching consolidated-submit and confirm each
+        fulfilment lookup -- modelled the same way
+        ury_fulfilment_posting_service._kot_order_ref()/_reservation_rows()
+        actually resolve it (order_ref = KOT.invoice, filtered by
+        top_level_item) -- finds exactly its own item's reservation, with no
+        cross-contamination and no orphan.
+
+        This only covers the case the current fix actually handles: a KOT
+        entirely on one side of the split. The genuinely unfixed case (a
+        single KOT mixing moved and staying items) has no correct single
+        `URY KOT.invoice` value under the current one-link-per-document
+        schema and is covered separately by
+        test_split_bill_reassigns_kot_only_when_fully_moved, which asserts
+        it is deliberately left alone rather than guessed at.
+        """
+        from ury.ury.api.ury_fulfilment_posting_service import _kot_order_ref
+
+        source = self._build_source()
+        mock_get_doc.return_value = source
+        mock_has_permission.return_value = True
+        mock_get_branch.return_value = "Test Branch"
+
+        new_invoice = _FakeInvoice(name=None, invoice_printed=0, invoice_created=0)
+        mock_new_doc.return_value = new_invoice
+
+        # KOT-A is entirely item A (fully moved to the new invoice).
+        # KOT-B is entirely item B (stays on the source invoice).
+        kot_invoice = {"KOT-A": "POS-INV-SRC", "KOT-B": "POS-INV-SRC"}
+
+        def get_all_side_effect(doctype, filters=None, fields=None, pluck=None, **kwargs):
+            if doctype == "URY KOT":
+                return ["KOT-A", "KOT-B"]
+            if doctype == "URY KOT Items":
+                parent = filters.get("parent")
+                if parent == "KOT-A":
+                    return [SimpleNamespace(reservation_line_key="ITEM-ROW-A")]
+                if parent == "KOT-B":
+                    return [SimpleNamespace(reservation_line_key="ITEM-ROW-B")]
+            return []
+
+        mock_get_all.side_effect = get_all_side_effect
+
+        def db_set_value_side_effect(doctype, name, field, value=None, update_modified=None):
+            if doctype == "URY KOT" and field == "invoice":
+                kot_invoice[name] = value
+
+        mock_db_set_value.side_effect = db_set_value_side_effect
+
+        split_bill(
+            "POS-INV-SRC",
+            json.dumps([{"name": "ITEM-ROW-A", "qty": 2}]),
+        )
+
+        # KOT-A followed item A to the new invoice; KOT-B was untouched.
+        self.assertEqual(kot_invoice["KOT-A"], "POS-INV-NEW")
+        self.assertEqual(kot_invoice["KOT-B"], "POS-INV-SRC")
+
+        # Build the reservation "table" a real Reserved reservation lookup
+        # would see, from exactly what reconcile_order_reservations() was
+        # actually asked to accept on each side of the split.
+        source_call, new_call = mock_reconcile.call_args_list
+        reservations = {}
+        for call, item_code in ((source_call, "ITEM-B"), (new_call, "ITEM-A")):
+            order_ref = call.kwargs["order_ref"]
+            for accepted in call.kwargs["accepted_items"]:
+                reservations.setdefault((order_ref, accepted["item_code"]), 0)
+                reservations[(order_ref, accepted["item_code"])] += accepted["qty"]
+
+        def reservation_for_kot(kot_name, item_code):
+            order_ref = _kot_order_ref_fake(kot_invoice, kot_name)
+            return reservations.get((order_ref, item_code))
+
+        # A stand-in for the real _kot_order_ref(), which does
+        # frappe.db.get_value("URY KOT", kot, "invoice") -- here read from
+        # our simulated table instead of a real DB row.
+        def _kot_order_ref_fake(table, kot):
+            return table.get(kot) or kot
+
+        # KOT-A (moved) must resolve its item A reservation under the NEW
+        # invoice's order_ref, and must find nothing under the source's.
+        self.assertEqual(reservation_for_kot("KOT-A", "ITEM-A"), 2)
+        self.assertIsNone(reservations.get(("POS-INV-SRC", "ITEM-A")))
+
+        # KOT-B (stayed) must resolve its item B reservation under the
+        # SOURCE invoice's order_ref, and must find nothing under the new
+        # invoice's.
+        self.assertEqual(reservation_for_kot("KOT-B", "ITEM-B"), 1)
+        self.assertIsNone(reservations.get(("POS-INV-NEW", "ITEM-B")))
+
+        # No orphan/duplicate coverage: exactly two (order_ref, item) cells
+        # are populated, one per moved/staying item, each with its own qty.
+        self.assertEqual(
+            reservations,
+            {("POS-INV-SRC", "ITEM-B"): 1, ("POS-INV-NEW", "ITEM-A"): 2},
+        )
+
+        # Sanity: the real _kot_order_ref() has the exact same
+        # invoice-or-kot-name fallback our fake models (confirms the fake
+        # above isn't testing a strawman).
+        with patch(
+            "ury.ury.api.ury_fulfilment_posting_service.frappe.db.get_value",
+            side_effect=lambda doctype, name, field: kot_invoice.get(name),
+        ):
+            self.assertEqual(_kot_order_ref("KOT-A"), "POS-INV-NEW")
+            self.assertEqual(_kot_order_ref("KOT-B"), "POS-INV-SRC")
+
+
+class _FakeInvoiceItem:
+    """Minimal stand-in for a saved `POS Invoice Item` child row: attribute
+    access for standard fields plus `.get()` for custom ones, matching what
+    `_previous_line_snapshot()` uses."""
+
+    def __init__(self, name, item_code, item_name, qty, reservation_line_key, comment=None):
+        self.name = name
+        self.item_code = item_code
+        self.item_name = item_name
+        self.qty = qty
+        self.reservation_line_key = reservation_line_key
+        self.comment = comment
+
+    def get(self, fieldname, default=None):
+        return getattr(self, fieldname, default)
+
+
+class TestSyncOrderLineIdentity(unittest.TestCase):
+    """B02b: `sync_order()` must diff previous-vs-current order lines on a
+    STABLE line identity, not on the invoice child row's `name`.
+
+    The shipped bug: `past_item` keyed each previous line as
+    `item.get("reservation_line_key") or item.name`. `reservation_line_key`
+    was never persisted (no `POS Invoice Item-reservation_line_key` custom
+    field existed) and the `/pos` React client never sent one, so EVERY
+    previous line was keyed by its child-row autoname while EVERY current
+    line was keyed by context/occurrence. The two sides could therefore
+    never match, and any edit to an existing line -- including a plain
+    1 -> 2 quantity bump -- diffed as "remove the whole old line + add a
+    brand-new one", which cancelled the original KOT and re-fired a full
+    KOT for the new quantity instead of raising a clean +1 delta.
+
+    These tests exercise the real diff primitive
+    (`ury_order_reservation_service._line_quantities`, which is also what
+    `ury_kot_generate._line_keyed_items` mirrors), so they assert the
+    behaviour the KOT and reservation layers actually consume.
+    """
+
+    def _diff(self, previous_items, current_items):
+        """Return (added, removed, changed) line keys for a previous/current pair.
+
+        Mirrors what the reservation and KOT delta layers compute.
+        """
+        from ury.ury.api.ury_order_reservation_service import _line_quantities
+
+        previous = _line_quantities(previous_items)
+        current = _line_quantities(current_items)
+
+        added = {k: v["qty"] for k, v in current.items() if k not in previous}
+        removed = {k: v["qty"] for k, v in previous.items() if k not in current}
+        changed = {
+            k: current[k]["qty"] - previous[k]["qty"]
+            for k in current
+            if k in previous and current[k]["qty"] != previous[k]["qty"]
+        }
+        return added, removed, changed
+
+    def _sync(self, invoice_items, client_items):
+        """Run only sync_order's line-identity stage over a saved invoice's
+        rows and the client's payload, returning (past_item, items)."""
+        past_item = _previous_line_snapshot(invoice_items)
+        items = _normalize_current_line_keys(client_items)
+        past_item = _backfill_previous_line_keys(past_item, items)
+        return past_item, items
+
+    # --- snapshot / normalization units -------------------------------
+
+    def test_previous_snapshot_never_falls_back_to_the_child_row_name(self):
+        """The regression guard for the actual bug: a row with no persisted
+        key must yield None, NOT its autoname."""
+        rows = [_FakeInvoiceItem("ITEM-ROW-9", "Biryani", "Biryani", 2, None)]
+        snapshot = _previous_line_snapshot(rows)
+        self.assertIsNone(snapshot[0]["reservation_line_key"])
+
+    def test_previous_snapshot_uses_the_persisted_key_when_present(self):
+        rows = [_FakeInvoiceItem("ITEM-ROW-9", "Biryani", "Biryani", 2, "Biryani-default-no-addons")]
+        snapshot = _previous_line_snapshot(rows)
+        self.assertEqual(snapshot[0]["reservation_line_key"], "Biryani-default-no-addons")
+
+    def test_current_items_accept_the_cart_uniqueid_as_a_line_key(self):
+        items = _normalize_current_line_keys(
+            [{"item": "Biryani", "qty": 1, "uniqueId": "Biryani-default-no-addons"}]
+        )
+        self.assertEqual(items[0]["reservation_line_key"], "Biryani-default-no-addons")
+
+    def test_current_items_never_adopt_an_echoed_row_name_as_identity(self):
+        """`name` is in LINE_REF_FIELDS for saved-doc use; a client payload
+        echoing a row name must not turn it into a line identity."""
+        items = _normalize_current_line_keys([{"item": "Biryani", "qty": 1, "name": "ITEM-ROW-9"}])
+        self.assertIsNone(items[0].get("reservation_line_key"))
+
+    # --- the four diff scenarios --------------------------------------
+
+    def test_quantity_bump_on_an_existing_line_is_a_delta_not_remove_plus_add(self):
+        previous, current = self._sync(
+            [_FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "Biryani-default-no-addons")],
+            [{"item": "Biryani", "item_name": "Biryani", "qty": 2, "reservation_line_key": "Biryani-default-no-addons"}],
+        )
+        added, removed, changed = self._diff(previous, current)
+
+        self.assertEqual(added, {})
+        self.assertEqual(removed, {})
+        self.assertEqual(list(changed.values()), [1])
+
+    def test_a_fresh_item_shows_up_as_an_addition_only(self):
+        previous, current = self._sync(
+            [_FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "Biryani-default-no-addons")],
+            [
+                {"item": "Biryani", "qty": 1, "reservation_line_key": "Biryani-default-no-addons"},
+                {"item": "Naan", "qty": 3, "reservation_line_key": "Naan-default-no-addons"},
+            ],
+        )
+        added, removed, changed = self._diff(previous, current)
+
+        self.assertEqual(list(added.values()), [3])
+        self.assertEqual(removed, {})
+        self.assertEqual(changed, {})
+
+    def test_a_dropped_item_shows_up_as_a_removal_only(self):
+        previous, current = self._sync(
+            [
+                _FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "Biryani-default-no-addons"),
+                _FakeInvoiceItem("ITEM-ROW-2", "Naan", "Naan", 3, "Naan-default-no-addons"),
+            ],
+            [{"item": "Biryani", "qty": 1, "reservation_line_key": "Biryani-default-no-addons"}],
+        )
+        added, removed, changed = self._diff(previous, current)
+
+        self.assertEqual(added, {})
+        self.assertEqual(list(removed.values()), [3])
+        self.assertEqual(changed, {})
+
+    def test_two_lines_of_the_same_item_with_different_comments_stay_distinct(self):
+        """The correctness class the reservation-side fix was built for:
+        bumping ONE of two same-item lines must not disturb the other, and
+        must not collapse the two into a single aggregated line."""
+        previous, current = self._sync(
+            [
+                _FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "LINE-A", comment="less spicy"),
+                _FakeInvoiceItem("ITEM-ROW-2", "Biryani", "Biryani", 1, "LINE-B", comment="extra spicy"),
+            ],
+            [
+                {"item": "Biryani", "qty": 2, "comment": "less spicy", "reservation_line_key": "LINE-A"},
+                {"item": "Biryani", "qty": 1, "comment": "extra spicy", "reservation_line_key": "LINE-B"},
+            ],
+        )
+        added, removed, changed = self._diff(previous, current)
+
+        self.assertEqual(added, {})
+        self.assertEqual(removed, {})
+        self.assertEqual(changed, {"ref:Biryani:LINE-A": 1})
+
+    def test_removing_one_of_two_same_item_lines_leaves_the_other_untouched(self):
+        previous, current = self._sync(
+            [
+                _FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "LINE-A", comment="less spicy"),
+                _FakeInvoiceItem("ITEM-ROW-2", "Biryani", "Biryani", 1, "LINE-B", comment="extra spicy"),
+            ],
+            [{"item": "Biryani", "qty": 1, "comment": "less spicy", "reservation_line_key": "LINE-A"}],
+        )
+        added, removed, changed = self._diff(previous, current)
+
+        self.assertEqual(added, {})
+        self.assertEqual(removed, {"ref:Biryani:LINE-B": 1})
+        self.assertEqual(changed, {})
+
+    # --- legacy bridge -------------------------------------------------
+
+    def test_legacy_unkeyed_previous_line_adopts_the_clients_key(self):
+        """An order saved BEFORE keys were persisted must not diff as
+        remove+add on its first edit."""
+        previous, current = self._sync(
+            [_FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, None)],
+            [{"item": "Biryani", "qty": 2, "reservation_line_key": "Biryani-default-no-addons"}],
+        )
+        self.assertEqual(previous[0]["reservation_line_key"], "Biryani-default-no-addons")
+
+        added, removed, changed = self._diff(previous, current)
+        self.assertEqual(added, {})
+        self.assertEqual(removed, {})
+        self.assertEqual(list(changed.values()), [1])
+
+    def test_legacy_backfill_refuses_ambiguous_same_item_lines(self):
+        """Two unkeyed previous lines of one item_code cannot be attributed
+        to specific client lines, so neither may adopt a key -- guessing
+        would silently fuse two distinct kitchen lines."""
+        previous, _ = self._sync(
+            [
+                _FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, None, comment="less spicy"),
+                _FakeInvoiceItem("ITEM-ROW-2", "Biryani", "Biryani", 1, None, comment="extra spicy"),
+            ],
+            [
+                {"item": "Biryani", "qty": 1, "comment": "less spicy", "reservation_line_key": "LINE-A"},
+                {"item": "Biryani", "qty": 1, "comment": "extra spicy", "reservation_line_key": "LINE-B"},
+            ],
+        )
+        self.assertEqual([p["reservation_line_key"] for p in previous], [None, None])
+
+    def test_legacy_backfill_never_steals_a_key_already_held_by_another_line(self):
+        previous, _ = self._sync(
+            [
+                _FakeInvoiceItem("ITEM-ROW-1", "Biryani", "Biryani", 1, "LINE-A"),
+                _FakeInvoiceItem("ITEM-ROW-2", "Biryani", "Biryani", 1, None),
+            ],
+            [{"item": "Biryani", "qty": 1, "reservation_line_key": "LINE-A"}],
+        )
+        self.assertEqual([p["reservation_line_key"] for p in previous], ["LINE-A", None])

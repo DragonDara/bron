@@ -237,7 +237,80 @@ class TestCreatePostingIntent(FrappeTestCase):
 		self.assertEqual(payload["components"][0]["s_warehouse"], "Kitchen WH")
 		self.assertEqual(payload["components"][1]["qty"], 1)
 		self.assertEqual(payload["production_configuration"], "CFG-1")
+		# G-06/I-7: the finished good's warehouse is resolved explicitly and
+		# frozen onto the payload, not re-derived from components[0] at
+		# posting time.
+		self.assertEqual(payload["fg_warehouse"], "Kitchen WH")
 		created[0].insert.assert_called_once_with(ignore_permissions=False)
+
+	def test_pre_produced_ready_creates_no_intent_and_posts_nothing(self):
+		"""Production posting is for MADE_TO_ORDER only.
+
+		A pre-produced item's Manufacture entry was already posted, ahead of
+		time, by the batch path, into the same warehouse the sale deducts
+		from at closing. Posting again at READY issued the selling item a
+		second time from that same warehouse -- the double deduction. READY
+		for such an item is a plating milestone with no stock semantics, so
+		no intent is created at all.
+		"""
+		created = []
+
+		def get_doc(arg, *args, **kwargs):
+			if arg == "URY KOT Items":
+				return _doc({"item": "PLATE-1", "quantity": 1})
+			if isinstance(arg, dict):
+				doc = _doc(arg)
+				doc.name = "INTENT-X"
+				created.append(doc)
+				return doc
+			raise AssertionError(arg)
+
+		def get_value(doctype, *args, **kwargs):
+			if doctype == "URY KOT":
+				return "POS-INV-1"
+			if doctype == "URY Fulfilment Posting Intent":
+				return None
+			raise AssertionError(doctype)
+
+		rows = [_reservation_rows(policy="PRE_PRODUCED")[0]]
+		with patch(f"{MODULE}.frappe.db.exists", return_value=True), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=get_doc
+		), patch(f"{MODULE}.frappe.db.get_value", side_effect=get_value), patch(
+			f"{MODULE}.frappe.get_all", side_effect=_get_all_for_create(reservation_rows=rows)
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			result = create_or_get_posting_intent_for_ready(_execution_doc(), actor="chef@example.com")
+
+		self.assertIsNone(result["name"])
+		self.assertEqual(result["status"], "SKIPPED_NOT_MADE_TO_ORDER")
+		self.assertEqual(created, [])
+
+	def test_direct_retail_ready_creates_no_intent(self):
+		"""Direct-retail items are not produced at all; the sale deducts them
+		once, at closing."""
+		def get_doc(arg, *args, **kwargs):
+			if arg == "URY KOT Items":
+				return _doc({"item": "PLATE-1", "quantity": 1})
+			raise AssertionError(arg)
+
+		def get_value(doctype, *args, **kwargs):
+			if doctype == "URY KOT":
+				return "POS-INV-1"
+			if doctype == "URY Fulfilment Posting Intent":
+				return None
+			raise AssertionError(doctype)
+
+		rows = [_reservation_rows(policy="DIRECT_RETAIL")[0]]
+		with patch(f"{MODULE}.frappe.db.exists", return_value=True), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=get_doc
+		), patch(f"{MODULE}.frappe.db.get_value", side_effect=get_value), patch(
+			f"{MODULE}.frappe.get_all", side_effect=_get_all_for_create(reservation_rows=rows)
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			result = create_or_get_posting_intent_for_ready(_execution_doc(), actor="chef@example.com")
+
+		self.assertIsNone(result["name"])
+		self.assertEqual(result["status"], "SKIPPED_NOT_MADE_TO_ORDER")
 
 	def test_ready_uses_next_sequence_for_new_reservation_group(self):
 		created = []
@@ -345,6 +418,7 @@ class TestStockEntryType(FrappeTestCase):
 			"production_policy": "MADE_TO_ORDER",
 			"item_code": "PLATE-1",
 			"accepted_qty": 2,
+			"fg_warehouse": "Kitchen WH",
 			"components": [
 				{"item_code": "COMP-1", "qty": 4, "s_warehouse": "Kitchen WH"},
 				{"item_code": "COMP-2", "qty": 2, "s_warehouse": "Kitchen WH"},
@@ -368,15 +442,36 @@ class TestStockEntryType(FrappeTestCase):
 			self.assertEqual(row["s_warehouse"], "Kitchen WH")
 			self.assertNotIn("t_warehouse", row)
 
-	def test_pre_produced_stock_rows_unchanged(self):
+	def test_issuing_the_selling_item_is_structurally_refused(self):
+		"""The no-self-issue invariant: the production event may only consume
+		items strictly below the selling item in the BOM. A row issuing the
+		selling item itself would be deducted twice -- once here and again by
+		the sale at closing, from the same warehouse. This is the exact shape
+		the old PRE_PRODUCED/DIRECT_RETAIL 'Material Issue' posting had."""
 		payload = {
 			"production_policy": "PRE_PRODUCED",
 			"item_code": "PLATE-1",
 			"accepted_qty": 1,
 			"components": [{"item_code": "PLATE-1", "qty": 1, "s_warehouse": "FG WH"}],
 		}
-		items = _stock_entry_items(payload)
-		self.assertEqual(items, [{"item_code": "PLATE-1", "qty": 1.0, "s_warehouse": "FG WH"}])
+		with self.assertRaises(Exception) as ctx:
+			_stock_entry_items(payload)
+		self.assertEqual(getattr(ctx.exception, "reason_code", None), "SELF_ISSUE_NOT_ALLOWED")
+
+	def test_self_issue_is_refused_for_made_to_order_too(self):
+		"""The assertion is structural, not policy-scoped: an MTO payload whose
+		BOM explosion somehow yielded the selling item is refused just the
+		same, so the bug class cannot return through another route."""
+		payload = {
+			"production_policy": "MADE_TO_ORDER",
+			"item_code": "PLATE-1",
+			"accepted_qty": 1,
+			"fg_warehouse": "Kitchen WH",
+			"components": [{"item_code": "PLATE-1", "qty": 1, "s_warehouse": "Kitchen WH"}],
+		}
+		with self.assertRaises(Exception) as ctx:
+			_stock_entry_items(payload)
+		self.assertEqual(getattr(ctx.exception, "reason_code", None), "SELF_ISSUE_NOT_ALLOWED")
 
 	def test_submit_stock_entry_uses_manufacture_for_made_to_order(self):
 		payload = {
@@ -384,6 +479,7 @@ class TestStockEntryType(FrappeTestCase):
 			"production_policy": "MADE_TO_ORDER",
 			"item_code": "PLATE-1",
 			"accepted_qty": 1,
+			"fg_warehouse": "Kitchen WH",
 			"components": [{"item_code": "COMP-1", "qty": 2, "s_warehouse": "Kitchen WH"}],
 		}
 		intent = _doc({"name": "INTENT-1", "erpnext_stock_entry": None})
@@ -403,7 +499,14 @@ class TestStockEntryType(FrappeTestCase):
 		self.assertEqual(captured["doc"]["stock_entry_type"], "Manufacture")
 		self.assertEqual(captured["doc"]["purpose"], "Manufacture")
 
-	def test_submit_stock_entry_uses_material_issue_for_pre_produced(self):
+	def test_submit_stock_entry_refuses_a_non_made_to_order_payload(self):
+		"""The pipeline only ever emits Manufacture entries. The old
+		'Material Issue' branch existed solely for PRE_PRODUCED /
+		DIRECT_RETAIL, which now post nothing at READY at all -- their stock
+		is created ahead of time by the batch path (or not produced at all)
+		and deducted once by the sale at closing. An intent for such a policy
+		reaching the worker means it should never have been created, so fail
+		closed rather than guess a purpose."""
 		payload = {
 			"company": "Company A",
 			"production_policy": "PRE_PRODUCED",
@@ -412,21 +515,12 @@ class TestStockEntryType(FrappeTestCase):
 			"components": [{"item_code": "PLATE-1", "qty": 1, "s_warehouse": "FG WH"}],
 		}
 		intent = _doc({"name": "INTENT-1", "erpnext_stock_entry": None})
-		captured = {}
 
-		def get_doc(arg):
-			captured["doc"] = arg
-			return _doc(arg)
+		with patch(f"{MODULE}._find_existing_stock_entry", return_value=None):
+			with self.assertRaises(Exception) as ctx:
+				_submit_stock_entry(intent, payload)
 
-		with patch(f"{MODULE}.frappe.get_doc", side_effect=get_doc), patch(
-			f"{MODULE}._find_existing_stock_entry", return_value=None
-		), patch(f"{MODULE}._service_mutation") as mock_mutation:
-			mock_mutation.return_value.__enter__ = MagicMock()
-			mock_mutation.return_value.__exit__ = MagicMock(return_value=False)
-			_submit_stock_entry(intent, payload)
-
-		self.assertEqual(captured["doc"]["stock_entry_type"], "Material Issue")
-		self.assertEqual(captured["doc"]["purpose"], "Material Issue")
+		self.assertEqual(getattr(ctx.exception, "reason_code", None), "UNSUPPORTED_PRODUCTION_POLICY")
 
 
 class TestProcessPostingIntent(FrappeTestCase):
@@ -443,6 +537,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 			"company": "Company A",
 			"production_policy": "MADE_TO_ORDER",
 			"reservation_group": "GROUP-1",
+			"fg_warehouse": "Finished Goods WH",
 			"components": [{"item_code": "COMP-1", "qty": 2, "s_warehouse": "Kitchen WH"}],
 			"actor": "chef@example.com",
 		}
@@ -483,7 +578,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 			f"{MODULE}.frappe.get_doc", side_effect=get_doc
 		), patch(f"{MODULE}.frappe.get_all", side_effect=lambda doctype, **kwargs: []), patch(
 			f"{MODULE}.frappe.db.get_value", return_value=None
-		), patch(f"{MODULE}.fulfil_reservation") as fulfil, patch(
+		), patch(f"{MODULE}.fulfil_reservation_if_pending") as fulfil, patch(
 			f"{MODULE}.now", return_value="2026-09-04 10:00:00"
 		), patch(f"{MODULE}.now_datetime", return_value=frappe.utils.get_datetime("2026-09-04 10:00:00")), patch(
 			f"{MODULE}.frappe.session"
@@ -494,13 +589,27 @@ class TestProcessPostingIntent(FrappeTestCase):
 		self.assertEqual(result["status"], POSTED)
 		stock_entry.insert.assert_called_once_with(ignore_permissions=False)
 		stock_entry.submit.assert_called_once()
-		fulfil.assert_called_once_with("GROUP-1")
+		# B03b: the guard is now told WHOSE share is being fulfilled, so a group
+		# shared by several KOT items only closes once all of them have posted.
+		fulfil.assert_called_once_with("GROUP-1", contributor="KEY-1", contributed_qty=1)
 		self.assertEqual(intent.erpnext_stock_entry, "STE-1")
 		self.assertEqual(intent.fulfilment_record, "FUL-1")
 		self.assertEqual(intent.status, POSTED)
 		self.assertGreaterEqual(intent.save.call_count, 2)
 
-	def test_replay_after_reservation_fulfilled_does_not_fulfil_again(self):
+	def test_replay_after_reservation_fulfilled_delegates_to_idempotent_guard(self):
+		"""A replay whose reservation group is already Fulfilled must still
+		post successfully and must not re-transition the group.
+
+		The "don't re-transition" half of that rule now lives in ONE place --
+		`ury_reservation_service.fulfil_reservation_if_pending`, which the
+		consolidated Sales Invoice close-out shares with this service (either
+		can win the race on the same group). So what this service is
+		responsible for, and what this test asserts, is that it routes its
+		fulfilment through that guard rather than calling `fulfil_reservation`
+		directly. The guard's own already-Fulfilled behaviour is covered by
+		`test_ury_reservation_service`.
+		"""
 		intent = self._intent()
 		intent.erpnext_stock_entry = "STE-1"
 		stock_entry = _doc({"name": "STE-1"})
@@ -519,7 +628,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 			if "tabURY Fulfilment Posting Intent" in query:
 				return [frappe._dict({"name": "INTENT-1", "status": "PENDING", "attempts": 0})]
 			if "tabURY Stock Reservation" in query:
-				# _reservation_is_fulfilled: every row already Fulfilled.
+				# Every row in the group is already Fulfilled.
 				return [frappe._dict({"status": "Fulfilled"})]
 			return []
 
@@ -527,7 +636,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 			f"{MODULE}.frappe.get_doc", side_effect=get_doc
 		), patch(f"{MODULE}.frappe.get_all", return_value=[frappe._dict({"status": "Fulfilled"})]), patch(
 			f"{MODULE}.frappe.db.get_value", return_value="FUL-1"
-		), patch(f"{MODULE}.fulfil_reservation") as fulfil, patch(
+		), patch(f"{MODULE}.fulfil_reservation_if_pending") as fulfil, patch(
 			f"{MODULE}.now", return_value="2026-09-04 10:00:00"
 		), patch(f"{MODULE}.now_datetime", return_value=frappe.utils.get_datetime("2026-09-04 10:00:00")), patch(
 			f"{MODULE}.frappe.session"
@@ -536,7 +645,12 @@ class TestProcessPostingIntent(FrappeTestCase):
 			result = process_posting_intent("INTENT-1")
 
 		self.assertEqual(result["status"], POSTED)
-		fulfil.assert_not_called()
+		# Routed through the shared idempotent guard, never through
+		# `fulfil_reservation` (which would frappe.throw on a group that is
+		# no longer Reserved and fail the replay).
+		# B03b: the guard is now told WHOSE share is being fulfilled, so a group
+		# shared by several KOT items only closes once all of them have posted.
+		fulfil.assert_called_once_with("GROUP-1", contributor="KEY-1", contributed_qty=1)
 
 	def test_ready_or_served_is_required(self):
 		execution = _execution_doc()
@@ -564,7 +678,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 		), patch(
 			f"{MODULE}.frappe.get_doc", side_effect=get_doc
 		), patch(f"{MODULE}.frappe.get_all", return_value=[]), patch(
-			f"{MODULE}.fulfil_reservation"
+			f"{MODULE}.fulfil_reservation_if_pending"
 		) as fulfil, patch(f"{MODULE}.now", return_value="2026-09-04 10:00:00"), patch(
 			f"{MODULE}.now_datetime", return_value=frappe.utils.get_datetime("2026-09-04 10:00:00")
 		), patch(f"{MODULE}.frappe.session") as session:
@@ -614,7 +728,7 @@ class TestProcessPostingIntent(FrappeTestCase):
 		), patch(
 			f"{MODULE}.frappe.get_doc", side_effect=get_doc
 		), patch(f"{MODULE}.frappe.get_all", return_value=[]), patch(
-			f"{MODULE}.fulfil_reservation"
+			f"{MODULE}.fulfil_reservation_if_pending"
 		) as fulfil, patch(f"{MODULE}.now", return_value="2026-09-04 10:00:00"), patch(
 			f"{MODULE}.now_datetime", return_value=frappe.utils.get_datetime("2026-09-04 10:00:00")
 		), patch(f"{MODULE}.frappe.session") as session:
@@ -626,3 +740,372 @@ class TestProcessPostingIntent(FrappeTestCase):
 		self.assertEqual(intent.status, FAILED)
 		self.assertFalse(intent.retryable)
 		self.assertIsNone(intent.next_retry_at)
+
+
+def _line_audit_log(component_item, qty, reservation_line_key=None, warehouse="Kitchen WH", policy="MADE_TO_ORDER"):
+	"""`_audit_log`, plus the order-time `reservation_line_key` the reservation
+	service freezes into `frozen_context` (see
+	`ury_order_reservation_service._reconcile_line`). Kept separate from
+	`_audit_log` so the pre-B03 fixtures above keep exercising the legacy,
+	no-line-key shape unchanged.
+	"""
+	context = {
+		"item_code": "PLATE-1",
+		"branch": "Branch A",
+		"company": "Company A",
+		"warehouse": warehouse,
+		"production_policy": policy,
+		"production_unit": "PU-FROZEN",
+		"department": "Kitchen",
+		"production_configuration": "CFG-1",
+	}
+	if reservation_line_key:
+		context["reservation_line_key"] = reservation_line_key
+	return json.dumps(
+		[{"event": "create", "component_item": component_item, "qty": qty, "frozen_context": context}],
+		sort_keys=True,
+	)
+
+
+def _group_rows(group, reservation_line_key=None):
+	"""Two component rows of one reservation group, as `_reservation_rows` reads them."""
+	return [
+		frappe._dict(
+			{
+				"name": "{0}-RES-1".format(group),
+				"reservation_group": group,
+				"policy": "DIRECT_RETAIL",
+				"warehouse": "MUTATED WH",
+				"top_level_item": "PLATE-1",
+				"component_item": "MUTATED-COMP",
+				"qty": 999,
+				"audit_log": _line_audit_log("COMP-1", 2, reservation_line_key),
+			}
+		),
+		frappe._dict(
+			{
+				"name": "{0}-RES-2".format(group),
+				"reservation_group": group,
+				"policy": "DIRECT_RETAIL",
+				"warehouse": "MUTATED WH",
+				"top_level_item": "PLATE-1",
+				"component_item": "MUTATED-COMP",
+				"qty": 999,
+				"audit_log": _line_audit_log("COMP-2", 1, reservation_line_key),
+			}
+		),
+	]
+
+
+class TestReservationLineScoping(FrappeTestCase):
+	"""B03: two live KOTs for the same item_code on one order must each draw
+	from their OWN reservation group, in either serving order.
+
+	Before this fix, `_reservation_rows` filtered only on
+	`(order_ref, item_code, branch, company, status=Reserved)`, so both KOTs
+	drew from one pooled row set: whichever was served first either tripped
+	`AMBIGUOUS_RESERVATION_BINDING` (both groups still Reserved) or consumed
+	and Fulfilled the other line's group, leaving the second KOT served with
+	`RESERVATION_NOT_FOUND`.
+	"""
+
+	LINE_A = "ref:PLATE-1:LINE-A"
+	LINE_B = "ref:PLATE-1:LINE-B"
+
+	def setUp(self):
+		patch(f"{MODULE}.now", return_value="2026-09-04 10:00:00").start()
+		patch(f"{MODULE}.frappe.get_roles", return_value=["Chef"]).start()
+		patch(f"{MODULE}.frappe.has_permission", return_value=True).start()
+		patch(f"{MODULE}.is_pos_stock_authority_flag_enabled", return_value=True).start()
+		self.addCleanup(patch.stopall)
+		# Live reservation store: group -> (line_key, status). Only Reserved
+		# groups are visible to `_reservation_rows`, exactly as the real
+		# `status=Reserved` filter behaves.
+		self.reserved = {
+			"GROUP-A": self.LINE_A,
+			"GROUP-B": self.LINE_B,
+		}
+
+	def _serve(self, kot_item_name, reservation_line_key):
+		"""Freeze one posting intent for one KOT item and return its payload."""
+		created = []
+
+		def get_doc(arg, *args, **kwargs):
+			if arg == "URY KOT Items":
+				item = {"item": "PLATE-1", "quantity": 1}
+				if reservation_line_key:
+					item["reservation_line_key"] = reservation_line_key
+				return _doc(item)
+			if isinstance(arg, dict):
+				doc = _doc(arg)
+				doc.name = "INTENT-{0}".format(kot_item_name)
+				created.append(doc)
+				return doc
+			raise AssertionError(arg)
+
+		def get_value(doctype, *args, **kwargs):
+			if doctype == "URY KOT":
+				return "POS-INV-1"
+			if doctype == "URY Fulfilment Posting Intent":
+				return None
+			raise AssertionError(doctype)
+
+		def get_all(doctype, *args, **kwargs):
+			if doctype == "URY Stock Reservation":
+				rows = []
+				for group, line_key in self.reserved.items():
+					rows.extend(_group_rows(group, line_key))
+				return rows
+			if doctype == "URY Fulfilment Posting Intent":
+				return []
+			raise AssertionError(doctype)
+
+		execution = _execution_doc()
+		execution.kot_item = kot_item_name
+		with patch(f"{MODULE}.frappe.db.exists", return_value=True), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=get_doc
+		), patch(f"{MODULE}.frappe.db.get_value", side_effect=get_value), patch(
+			f"{MODULE}.frappe.get_all", side_effect=get_all
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			create_or_get_posting_intent_for_ready(execution, actor="chef@example.com")
+
+		payload = json.loads(created[0]["frozen_payload_json"])
+		# The posting fulfils its own group; it leaves every other group alone.
+		self.reserved.pop(payload["reservation_group"], None)
+		return payload
+
+	def test_two_kots_same_item_are_bound_to_their_own_groups_original_first(self):
+		first = self._serve("KOTITEM-A", self.LINE_A)
+		self.assertEqual(first["reservation_group"], "GROUP-A")
+		self.assertEqual(first["reservation_line_key"], self.LINE_A)
+		self.assertEqual({c["reservation_group"] for c in first["components"]}, {"GROUP-A"})
+
+		second = self._serve("KOTITEM-B", self.LINE_B)
+		self.assertEqual(second["reservation_group"], "GROUP-B")
+		self.assertEqual(second["reservation_line_key"], self.LINE_B)
+		self.assertEqual({c["reservation_group"] for c in second["components"]}, {"GROUP-B"})
+
+	def test_two_kots_same_item_are_bound_to_their_own_groups_delta_first(self):
+		first = self._serve("KOTITEM-B", self.LINE_B)
+		self.assertEqual(first["reservation_group"], "GROUP-B")
+
+		second = self._serve("KOTITEM-A", self.LINE_A)
+		self.assertEqual(second["reservation_group"], "GROUP-A")
+
+	def test_single_kot_single_group_is_unaffected_by_line_scoping(self):
+		self.reserved = {"GROUP-A": self.LINE_A}
+		payload = self._serve("KOTITEM-A", self.LINE_A)
+		self.assertEqual(payload["reservation_group"], "GROUP-A")
+		self.assertEqual([c["item_code"] for c in payload["components"]], ["COMP-1", "COMP-2"])
+
+	def test_legacy_reservations_without_a_frozen_line_key_still_resolve(self):
+		"""Reservations created before `reservation_line_key` was frozen carry
+		no line key. A KOT item that does have one must fall back to the old
+		`(order_ref, item_code)` behaviour rather than finding nothing.
+		"""
+		self.reserved = {"GROUP-A": None}
+		payload = self._serve("KOTITEM-A", self.LINE_A)
+		self.assertEqual(payload["reservation_group"], "GROUP-A")
+
+	def test_legacy_kot_item_without_a_line_key_keeps_todays_behaviour(self):
+		self.reserved = {"GROUP-A": self.LINE_A}
+		payload = self._serve("KOTITEM-A", None)
+		self.assertEqual(payload["reservation_group"], "GROUP-A")
+		self.assertIsNone(payload["reservation_line_key"])
+
+	def test_legacy_kot_item_with_two_live_groups_still_fails_closed(self):
+		"""Unchanged pre-B03 behaviour for a KOT item with no line key at all:
+		two candidate groups remain genuinely ambiguous and must still be
+		refused rather than silently picking one.
+		"""
+		with self.assertRaises(FulfilmentPostingError) as ctx:
+			self._serve("KOTITEM-A", None)
+		self.assertEqual(ctx.exception.reason_code, "AMBIGUOUS_RESERVATION_BINDING")
+
+	def test_no_reserved_rows_at_all_still_raises_reservation_not_found(self):
+		self.reserved = {}
+		with self.assertRaises(FulfilmentPostingError) as ctx:
+			self._serve("KOTITEM-A", self.LINE_A)
+		self.assertEqual(ctx.exception.reason_code, "RESERVATION_NOT_FOUND")
+
+
+def _shared_group_rows(group, reservation_line_key, reserved_top_level_qty, component_qtys):
+	"""One reservation group sized for `reserved_top_level_qty` top-level units.
+
+	`component_qtys` are the row quantities as `create_reservation` wrote them,
+	i.e. already scaled to the group's FULL top-level quantity -- which is
+	exactly what made the un-scaled freeze over-consume when two KOT items
+	shared the group.
+	"""
+	context = {
+		"item_code": "PLATE-1",
+		"branch": "Branch A",
+		"company": "Company A",
+		"warehouse": "Kitchen WH",
+		"production_policy": "MADE_TO_ORDER",
+		"production_unit": "PU-FROZEN",
+		"department": "Kitchen",
+		"production_configuration": "CFG-1",
+		"reservation_line_key": reservation_line_key,
+	}
+	if reserved_top_level_qty is not None:
+		context["reserved_top_level_qty"] = reserved_top_level_qty
+	return [
+		frappe._dict(
+			{
+				"name": "{0}-RES-{1}".format(group, index),
+				"reservation_group": group,
+				"policy": "DIRECT_RETAIL",
+				"warehouse": "MUTATED WH",
+				"top_level_item": "PLATE-1",
+				"component_item": "MUTATED-COMP",
+				"qty": 999,
+				"audit_log": json.dumps(
+					[
+						{
+							"event": "create",
+							"component_item": "COMP-{0}".format(index),
+							"qty": qty,
+							"frozen_context": context,
+						}
+					],
+					sort_keys=True,
+				),
+			}
+		)
+		for index, qty in enumerate(component_qtys, start=1)
+	]
+
+
+class TestSharedReservationGroupComponentScaling(FrappeTestCase):
+	"""B03b: two KOT items sharing ONE reservation group must each freeze only
+	their own share of its components.
+
+	B03 bound each KOT item to its own line's reservation group. But a straight
+	quantity bump on ONE line (Coffee 1 -> 2) does not produce two groups:
+	`ury_order_reservation_service._reconcile_line` releases the line's group
+	and creates ONE replacement sized for the new TOTAL under the same
+	`reservation_line_key`, and the delta KOT raised for the +1 inherits that
+	same line key. So B03's scoping correctly binds BOTH KOT items to that one
+	group -- whose component rows are sized for qty 2.
+
+	Freezing those rows verbatim made each of the two postings consume raw
+	materials for the full 2 while receiving a finished good for its own 1:
+	components deducted twice over. Each posting must instead freeze
+	`accepted_qty / reserved_total` of them.
+	"""
+
+	LINE = "ref:PLATE-1:LINE-A"
+
+	def setUp(self):
+		patch(f"{MODULE}.now", return_value="2026-09-04 10:00:00").start()
+		patch(f"{MODULE}.frappe.get_roles", return_value=["Chef"]).start()
+		patch(f"{MODULE}.frappe.has_permission", return_value=True).start()
+		patch(f"{MODULE}.is_pos_stock_authority_flag_enabled", return_value=True).start()
+		self.addCleanup(patch.stopall)
+
+	def _serve(self, kot_item_name, kot_qty, rows):
+		created = []
+
+		def get_doc(arg, *args, **kwargs):
+			if arg == "URY KOT Items":
+				return _doc(
+					{"item": "PLATE-1", "quantity": kot_qty, "reservation_line_key": self.LINE}
+				)
+			if isinstance(arg, dict):
+				doc = _doc(arg)
+				doc.name = "INTENT-{0}".format(kot_item_name)
+				created.append(doc)
+				return doc
+			raise AssertionError(arg)
+
+		def get_value(doctype, *args, **kwargs):
+			if doctype == "URY KOT":
+				return "POS-INV-1"
+			if doctype == "URY Fulfilment Posting Intent":
+				return None
+			raise AssertionError(doctype)
+
+		def get_all(doctype, *args, **kwargs):
+			if doctype == "URY Stock Reservation":
+				return rows
+			if doctype == "URY Fulfilment Posting Intent":
+				return []
+			raise AssertionError(doctype)
+
+		execution = _execution_doc()
+		execution.kot_item = kot_item_name
+		with patch(f"{MODULE}.frappe.db.exists", return_value=True), patch(
+			f"{MODULE}.frappe.get_doc", side_effect=get_doc
+		), patch(f"{MODULE}.frappe.db.get_value", side_effect=get_value), patch(
+			f"{MODULE}.frappe.get_all", side_effect=get_all
+		), patch(f"{MODULE}.frappe.session") as session:
+			session.user = "chef@example.com"
+			create_or_get_posting_intent_for_ready(execution, actor="chef@example.com")
+		return json.loads(created[0]["frozen_payload_json"])
+
+	def test_each_of_two_kots_sharing_a_group_consumes_only_its_own_half(self):
+		rows = _shared_group_rows("GROUP-A", self.LINE, reserved_top_level_qty=2, component_qtys=[4, 2])
+
+		original = self._serve("KOTITEM-ORIGINAL", 1, rows)
+		delta = self._serve("KOTITEM-DELTA", 1, rows)
+
+		for payload in (original, delta):
+			self.assertEqual(payload["reservation_group"], "GROUP-A")
+			self.assertEqual(payload["reservation_group_qty"], 2)
+			self.assertEqual(payload["reservation_line_share"], 0.5)
+			# Half of the group's rows, which were sized for the full qty 2.
+			self.assertEqual([c["qty"] for c in payload["components"]], [2, 1])
+			# The finished good was always per-KOT-item and is unchanged.
+			self.assertEqual(payload["accepted_qty"], 1)
+
+		# Together the two postings consume exactly what the group reserved.
+		self.assertEqual(
+			[a["qty"] + b["qty"] for a, b in zip(original["components"], delta["components"])],
+			[4, 2],
+		)
+
+	def test_an_uneven_bump_scales_each_kot_to_its_own_quantity(self):
+		"""Coffee 1 -> 3: the delta KOT is for 2, the original for 1, against
+		one group reserving 3."""
+		rows = _shared_group_rows("GROUP-A", self.LINE, reserved_top_level_qty=3, component_qtys=[6])
+
+		original = self._serve("KOTITEM-ORIGINAL", 1, rows)
+		delta = self._serve("KOTITEM-DELTA", 2, rows)
+
+		self.assertEqual(original["components"][0]["qty"], 2)
+		self.assertEqual(delta["components"][0]["qty"], 4)
+
+	def test_a_single_kot_covering_the_whole_group_is_unscaled(self):
+		"""The ordinary no-bump case. The share is exactly 1.0, and `x * 1.0 ==
+		x` for floats, so the frozen component quantities are bit-identical to
+		what this froze before B03b."""
+		rows = _shared_group_rows("GROUP-A", self.LINE, reserved_top_level_qty=2, component_qtys=[4, 2])
+
+		payload = self._serve("KOTITEM-ONLY", 2, rows)
+
+		self.assertEqual(payload["reservation_line_share"], 1.0)
+		self.assertEqual([c["qty"] for c in payload["components"]], [4, 2])
+
+	def test_a_legacy_group_with_no_frozen_reserved_qty_is_unscaled(self):
+		"""Reservations created before `reserved_top_level_qty` was frozen carry
+		no divisible total, so the freeze must fall back to today's exact
+		whole-group behaviour rather than inventing a ratio."""
+		rows = _shared_group_rows("GROUP-A", self.LINE, reserved_top_level_qty=None, component_qtys=[4, 2])
+
+		payload = self._serve("KOTITEM-ONLY", 1, rows)
+
+		self.assertIsNone(payload["reservation_group_qty"])
+		self.assertEqual(payload["reservation_line_share"], 1.0)
+		self.assertEqual([c["qty"] for c in payload["components"]], [4, 2])
+
+	def test_a_kot_item_claiming_more_than_its_group_reserved_fails_closed(self):
+		"""Posting it would consume beyond the reservation; silently scaling it
+		down would under-produce against the ticket. Neither is a defensible
+		guess, so the intent must fail observably instead."""
+		rows = _shared_group_rows("GROUP-A", self.LINE, reserved_top_level_qty=1, component_qtys=[2])
+
+		with self.assertRaises(FulfilmentPostingError) as ctx:
+			self._serve("KOTITEM-ONLY", 2, rows)
+		self.assertEqual(ctx.exception.reason_code, "KOT_QTY_EXCEEDS_RESERVATION")
