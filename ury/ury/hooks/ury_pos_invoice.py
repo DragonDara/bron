@@ -341,6 +341,8 @@ def validate_invoice(doc, method):
         doc.waiter = doc.modified_by
     if getattr(frappe.flags, "ury_bill_split", False):
         return
+    if getattr(frappe.flags, "ury_qty_reduction", False):
+        return
     remove_items = frappe.db.get_value("POS Profile", doc.pos_profile, "remove_items")
     
     if doc.invoice_printed == 1 and remove_items == 0:
@@ -399,12 +401,13 @@ def validate_customer(doc, method):
 def calculate_and_set_times(doc, method):
     doc.arrived_time = doc.creation
 
-    current_time = now_datetime()
-    
+    current_time_str = now()
+
+    current_time = datetime.strptime(current_time_str, "%Y-%m-%d %H:%M:%S.%f")
+
     creation_time = get_datetime(doc.creation)
-    
     time_difference = current_time - creation_time
-    
+
     total_seconds = int(time_difference.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
