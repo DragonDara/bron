@@ -62,15 +62,14 @@ function App() {
   const aiEnabled = useAiSettings();
 
   useEffect(() => {
-    initializeApp();
-  }, [initializeApp]);
+    // Do not fire protected POS APIs while the browser is still Guest on the
+    // optional PIN screen. Waiting for AuthGuard's profile also preserves the
+    // existing initialization order for password-authenticated users.
+    if (user && configuredProfile) {
+      initializeApp();
+    }
+  }, [configuredProfile, initializeApp, user]);
 
-  useEffect(() => {
-    const lang = getActiveLanguage();
-    const isRtl = ['ar', 'he', 'fa', 'ur', 'ku'].includes(lang);
-    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
-    document.documentElement.lang = lang || 'en';
-  }, []);
   return (
     <>
       <ToastProvider />

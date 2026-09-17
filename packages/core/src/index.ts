@@ -13,9 +13,19 @@ export {
 } from './frappe/deskLink';
 export type { ReturnContext, BuildDeskUrlOptions } from './frappe/deskLink';
 export type { POSCapabilities } from './frappe/roles';
+export { parseFrappeError } from './frappe/errors';
 export type { User, PosProfileCombined } from './types';
 export { storage } from './storage';
-export { formatCurrency, formatCompactCurrency, formatInvoiceTime } from './format';
+export { formatCurrency, formatCompactCurrency, formatInvoiceTime, flt } from './format';
 export { initPrinting, loadQzPrinter, disconnectQzPrinter, printWithQz } from './print/qz';
 export { validateFieldValue } from './utils/validateField';
 export type { ValidationMessages } from './utils/validateField';
+export {
+  resolveUryLanguage,
+  setUryLanguage,
+  startDomI18n,
+  mountLanguageSwitcher,
+  URY_LANGUAGES,
+  URY_LANGUAGE_STORAGE_KEY,
+} from './i18n';
+export type { UryLanguage } from './i18n';

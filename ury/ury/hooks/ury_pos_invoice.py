@@ -1,6 +1,15 @@
 import frappe
 from datetime import datetime
-from frappe.utils import now_datetime, get_time, now, flt, getdate, get_first_day, get_last_day, get_datetime
+from frappe.utils import (
+    now_datetime,
+    get_time,
+    now,
+    flt,
+    getdate,
+    get_first_day,
+    get_last_day,
+    get_datetime,
+)
 from ury.ury.doctype.ury_order.ury_order import release_merge_cluster_tables
 from ury.ury.doctype.staff_discount_policy.staff_discount_policy import get_applicable_policy
 
