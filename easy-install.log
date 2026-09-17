@@ -1,0 +1,7 @@
+2026-09-11 12:17:23,413 - ERROR - Local image build failed
+Traceback (most recent call last):
+  File "C:\Users\Алихан\Desktop\thetochka\bron\easy-install-local.py", line 320, in build_image_local
+    subprocess.run(command, check=True, cwd=repo_dir)
+  File "C:\Users\Алихан\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.EXE', 'build', '--progress=plain', '--build-context', 'ury=C:/Users/Алихан/AppData/Local/Temp/frappe-local-app-37h4xppw/ury', '--tag=custom-apps:latest', '--file=images/custom/Containerfile.local', '--build-arg=FRAPPE_PATH=https://github.com/frappe/frappe', '--build-arg=FRAPPE_BRANCH=version-16', '--build-arg=PYTHON_VERSION=3.14', '--build-arg=NODE_VERSION=24.14.0', '--secret', 'id=apps_json,src=C:\\Users\\Алихан\\Desktop\\thetochka\\bron\\apps-local.json', '.']' returned non-zero exit status 1.
