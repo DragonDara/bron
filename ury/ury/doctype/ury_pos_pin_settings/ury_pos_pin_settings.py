@@ -53,6 +53,19 @@ def is_eligible_pos_user(user: str) -> bool:
 	return bool(frappe.db.exists("URY User", {"user": user}))
 
 
+def is_user_in_branch(user: str, branch: str) -> bool:
+	"""Terminal-scoped PIN login only accepts staff assigned to the terminal's
+	Branch (the `URY User` child table on `Branch`)."""
+	if not branch:
+		return False
+	return bool(
+		frappe.db.exists(
+			"URY User",
+			{"user": user, "parent": branch, "parenttype": "Branch"},
+		)
+	)
+
+
 def _pin_matches(settings_name: str, pin: str) -> bool:
 	try:
 		check_password(
