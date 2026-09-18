@@ -1,0 +1,171 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Search } from 'lucide-react';
+import { usePOSStore } from '../../store/pos-store';
+import { cn, Spinner, Button, Input } from '@ury/ui';
+import { db } from '@ury/core';
+import MenuCard from '../../components/MenuCard';
+import ProductDialog from '../../components/ProductDialog';
+
+interface CaptainMenuProps {
+  /** From the per-table permission map (`get_table_order_context`). When
+   * false, browsing is still allowed but tapping an item does nothing. */
+  canAddItems: boolean;
+}
+
+/**
+ * Touch-first menu browser for the Captain order screen. Reuses the same
+ * menu data/search/category-filter logic `MenuList.tsx` uses (pos-store's
+ * `menuItems`/`categories`/`searchQuery`/`selectedCategory`) rather than a
+ * parallel menu API, but replaces `MenuList`'s desktop click semantics with
+ * a single tap = add one unit (PLAN.md §7: no double-click on touch UIs).
+ * Editing quantity/notes on an already-added item happens in the Current
+ * Order view, not here — see CaptainOrder.tsx.
+ */
+const CaptainMenu: React.FC<CaptainMenuProps> = ({ canAddItems }) => {
+  const {
+    menuItems,
+    menuLoading,
+    selectedCategory,
+    setSelectedCategory,
+    searchQuery,
+    setSearchQuery,
+    categories,
+    fetchMenuItems,
+    addToOrder,
+    isOrderInteractionDisabled,
+    posProfile,
+    setSelectedItem,
+  } = usePOSStore();
+
+  const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
+
+  useEffect(() => {
+    fetchMenuItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filteredItems = useMemo(() => {
+    const term = searchQuery.toLowerCase();
+    return menuItems.filter((item) => {
+      const matchesCategory = !selectedCategory || item.course === selectedCategory;
+      const matchesSearch =
+        !searchQuery ||
+        item.name.toLowerCase().includes(term) ||
+        item.item.toLowerCase().includes(term);
+      return matchesCategory && matchesSearch;
+    });
+  }, [menuItems, selectedCategory, searchQuery]);
+
+  const disabled = !canAddItems || isOrderInteractionDisabled();
+
+  const handleTap = async (item: (typeof menuItems)[number]) => {
+    if (disabled) return;
+
+    // Touch UI has no double-click, so (unlike the desktop POS's click-count
+    // gesture) we decide up front whether this item needs configuration:
+    // fetch the full Item doc and reuse the same "has variants/add-ons"
+    // check ProductDialog itself uses to populate its pickers. Items with
+    // neither keep the previous instant single-tap add.
+    try {
+      const itemDoc: any = await db.getDoc('Item', item.item);
+      const hasVariants =
+        Array.isArray(itemDoc?.custom_pos_item_variants) && itemDoc.custom_pos_item_variants.length > 0;
+      const hasAddons =
+        Array.isArray(itemDoc?.custom_pos_add_on_items) && itemDoc.custom_pos_add_on_items.length > 0;
+
+      if (hasVariants || hasAddons) {
+        setSelectedItem(item);
+        setIsProductDialogOpen(true);
+        return;
+      }
+    } catch (err) {
+      // If we can't confirm the item's configuration, fall back to the
+      // instant add rather than blocking order-taking on a lookup failure.
+      console.error('Failed to check item configuration for', item.item, err);
+    }
+
+    addToOrder({ ...item, quantity: 1 });
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="sticky top-0 z-10 bg-card border-b border-border p-3 space-y-2">
+        <div className="relative">
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary pointer-events-none" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search menu"
+            className="ps-9 pe-3"
+            variant="search"
+          />
+        </div>
+
+        <div className="relative">
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-3 px-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <Button
+              variant="tab"
+              size="sm"
+              data-selected={selectedCategory === ''}
+              onClick={() => setSelectedCategory('')}
+              className="shrink-0 rounded-full"
+            >
+              All
+            </Button>
+            {categories.map((category) => (
+              <Button
+                key={category.name}
+                variant="tab"
+                size="sm"
+                data-selected={selectedCategory === category.name}
+                onClick={() => setSelectedCategory(category.name)}
+                className="shrink-0 rounded-full"
+              >
+                {category.label}
+              </Button>
+            ))}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 end-0 w-8 bg-gradient-to-l from-card to-transparent" />
+        </div>
+
+        {!canAddItems && (
+          <p className="text-xs text-warning bg-warning-tint border border-warning-tint-border rounded px-3 py-2">
+            You can browse the menu, but you don't have permission to add items to this order.
+          </p>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {menuLoading ? (
+          <Spinner message="Loading menu…" />
+        ) : filteredItems.length === 0 ? (
+          <p className="text-center text-text-tertiary text-sm mt-8">No items found.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 pb-8">
+            {filteredItems.map((item) => (
+              <MenuCard
+                key={item.id}
+                id={item.id}
+                name={item.name}
+                price={item.price}
+                item_image={item.image}
+                course={item.course_label || item.course}
+                item={item.item}
+                onClick={() => handleTap(item)}
+                disabled={disabled}
+                branch={posProfile?.branch}
+                company={posProfile?.company}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {isProductDialogOpen && (
+        <ProductDialog onClose={() => setIsProductDialogOpen(false)} />
+      )}
+    </div>
+  );
+};
+
+export default CaptainMenu;

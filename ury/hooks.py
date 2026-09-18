@@ -27,7 +27,14 @@ app_include_js = [
     "/assets/ury/js/quick_entry.js",
     "/assets/ury/js/pos_print.js",
     "/assets/ury/js/restrict_qty_edit_pos.js",
-    "/assets/ury/js/ury_pos_kot.js"
+    "/assets/ury/js/ury_pos_kot.js",
+    # Floating "Back to <App>" chip for users a URY SPA sent into the desk.
+    # See ury/public/js/return_to_app.js and packages/core/src/frappe/deskLink.ts.
+    "/assets/ury/js/return_to_app.js",
+    "/assets/ury/js/remove_duplicates.js",
+    "/assets/ury/js/journal_entry.js",
+    "/assets/ury/js/round_off_limit_exceed.js",
+    "/assets/ury/js/restrict_customer_group_change.js"
 ]
 
 # include js, css files in header of web template
@@ -45,7 +52,10 @@ app_include_js = [
 page_js = {"point-of-sale": ["public/js/pos_extend.js"]}
 
 # include js in doctype views
-# doctype_js = {"POS Invoive" : "public/js/pos_print.js"}
+doctype_js = {
+    "POS Closing Entry": "ury/public/js/pos_closing_entry_clock_integrity.js",
+    "Production Plan": "ury/public/js/production_plan_from_sales_plan.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -55,10 +65,17 @@ website_context = {"splash_image": "/assets/ury/Images/ury-logo.jpg"}
 
 website_route_rules = [
     {"from_route": "/urypos/<path:app_path>", "to_route": "urypos"},
+    # /order kept as a redirect-compatible alias below; /ury/order is the
+    # canonical route going forward (new app, no live QR codes/bookmarks
+    # to break). Established routes (urypos, pos, mosaic) are intentionally
+    # NOT renamed here -- that would risk breaking printed QR codes or
+    # staff muscle memory on a system that may already be in real use;
+    # renaming those needs its own deliberate, communicated migration.
+    {"from_route": "/order/<path:app_path>", "to_route": "order"},
+    {"from_route": "/ury/order/<path:app_path>", "to_route": "order"},
     {"from_route": "/mosaic/<path:app_path>", "to_route": "mosaic"},
     {"from_route": "/ury/<path:app_path>", "to_route": "ury"},
     {"from_route": "/setup-wizard", "to_route": "ury"},
-    {"from_route": "/order/<path:app_path>", "to_route": "order"},
     {"from_route": "/pos/<path:app_path>", "to_route": "pos"},
 ]
 
@@ -165,6 +182,18 @@ before_uninstall = "ury.uninstall.uninstall"
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
 
+# HUF-optional: seeds/self-heals the "URY Dashboard Assistant" Agent record
+# on every migrate. Safe to define even when huf is not installed — the
+# function itself no-ops when "huf" isn't in the installed apps list.
+after_migrate = ["ury.ury.ai_tools.agent_seeding.after_migrate"]
+
+# The "URY Sales Plan" Workflow fixture (ury/ury/workflow/ury_sales_plan/ury_sales_plan.json)
+# links to Workflow State / Workflow Action Master records that frappe core does
+# not seed. `bench migrate` syncs fixtures (frappe.modules.utils.sync_fixtures)
+# BEFORE running after_migrate hooks, so seeding these in after_migrate would be
+# too late on a fresh site -- before_migrate runs first, ahead of fixture sync.
+before_migrate = ["ury.ury.workflow.ury_sales_plan.install.before_migrate"]
+
 # Document Events
 # ---------------
 # Hook on document methods and events
@@ -175,7 +204,10 @@ doc_events = {
         "validate": "ury.ury.hooks.ury_pos_invoice.validate",
         "after_insert":"ury.ury.api.ury_kot_order_number.set_order_number",
         "before_submit": "ury.ury.hooks.ury_pos_invoice.before_submit",
-        "on_submit": "ury.ury.hooks.ury_pos_invoice.on_submit",
+        "on_submit": [
+            "ury.ury.hooks.ury_pos_invoice.on_submit",
+            "ury.ury.api.ury_feature_flags.maybe_wire_fulfilment_on_submit",
+        ],
         "on_update": "ury.ury.hooks.ury_pos_invoice.on_update",
         "on_cancel": "ury.ury.hooks.ury_pos_invoice.on_trash",
         "on_trash": "ury.ury.hooks.ury_pos_invoice.on_trash",
@@ -184,20 +216,51 @@ doc_events = {
     "Sales Invoice": {
         "before_insert": "ury.ury.hooks.ury_sales_invoice.before_insert",
         "on_update":"ury.ury.hooks.ury_sales_invoice.on_update",
+        "on_submit": [
+            "ury.ury.hooks.ury_sales_invoice.round_off_journal_entry",
+            # Close out URY stock reservations at the consolidated Sales
+            # Invoice submit -- the single point at which a POS session's
+            # sale-side stock actually leaves Bin. Guarded internally on
+            # is_consolidated; a no-op for ordinary (non-POS) Sales Invoices.
+            "ury.ury.hooks.ury_sales_invoice.fulfil_reservations_on_consolidation",
+        ],
+        "on_cancel": "ury.ury.hooks.ury_sales_invoice.journal_entry_cancel",
         },
     "Item": {"validate": "ury.ury.hooks.ury_item.validate"},
     "POS Opening Entry": {
-        "validate":"ury.ury.hooks.ury_pos_opening_entry.set_cashier_room",
+        "validate":[
+            "ury.ury.hooks.ury_pos_opening_entry.set_cashier_room",
+            "ury.ury.utils.stock_count_gate.validate_pos_opening_entry",
+        ],
         "before_save": "ury.ury.hooks.ury_pos_opening_entry.before_save",
         "before_insert":"ury.ury.api.ury_kot_order_number.set_last_invoice_in_pos_open",
         },
     "POS Closing Entry": {
         "before_save": "ury.ury.hooks.ury_pos_closing_entry.before_save",
-        "validate":"ury.ury.hooks.ury_pos_closing_entry.validate"
+        "validate":[
+            "ury.ury.hooks.ury_pos_closing_entry.validate",
+            "ury.ury.utils.stock_count_gate.validate_pos_closing_entry",
+            # T5 / I-10: session-scoped closing reconciliation. Runs AFTER
+            # `ury_pos_closing_entry.validate`, which is what populates
+            # `pos_transactions` for the custom frontend's path -- this
+            # handler reads that table, so the order matters. No-op unless
+            # the branch has `closing_reconciliation_enabled` (tier gate 3).
+            "ury.ury.hooks.ury_pos_closing_reconciliation.validate_closing_reconciliation",
+        ],
         },
     "URY Menu Course": {
 		"validate": "ury.ury.api.ury_menu_course_validation.validate_priority",
-	}    
+	},
+    "URY KOT": {
+        "on_submit": "ury.ury.api.ury_kot_item_execution_service.seed_kot_item_executions_on_submit",
+    },
+    "AI Provider": {"on_update": "ury.ury.ai_tools.agent_seeding.on_ai_provider_update"},
+    "Stock Reconciliation": {"validate": "ury.ury.utils.stock_reconciliation_guards.validate"},
+    "Customer": {"validate": "ury.ury.hooks.ury_customer.validate"},
+    "BOM": {"before_validate": "ury.ury.hooks.ury_bom.apply_yield_back_calculation"},
+    "Stock Entry": {
+        "validate": "ury.ury.api.ury_manufacture_enforcement.validate_manufacture_requires_work_order",
+    },
 }
 
 # Scheduled Tasks
@@ -206,14 +269,25 @@ doc_events = {
 scheduler_events = {
     "cron":{
 		"* * * * *":[
-			"ury.ury.api.ury_kot_validation.kotValidationThread"
+			"ury.ury.api.ury_kot_validation.kotValidationThread",
+			"ury.ury.api.ury_fulfilment_posting_service.recover_pending_posting_intents",
+		],
+		"*/5 * * * *":[
+			"ury.ury.services.food_cost_alerts.notify_high_food_cost"
+		],
+		# Backstop only. Reservations are normally closed out at the
+		# consolidated Sales Invoice submit (sale) or on cancellation; this
+		# sweeps rows that reached neither, so capacity is not leaked
+		# forever. Hourly is ample for a job whose TTL is measured in a day.
+		"0 * * * *":[
+			"ury.ury.api.ury_reservation_service.expire_stale_reservations_scheduled"
 		]
-	}
+	},
+	"daily": [
+		"ury.ury.services.yield_check_reminders.notify_overdue_yield_checks"
+	]
 # 	"all": [
 # 		"ury.tasks.all"
-# 	],
-# 	"daily": [
-# 		"ury.tasks.daily"
 # 	],
 # 	"hourly": [
 # 		"ury.tasks.hourly"
@@ -226,10 +300,16 @@ scheduler_events = {
 # 	],
 }
 
+# Demo seeding is a deliberate, on-demand action only (bench command below) —
+# it must never run automatically via the scheduler.
+commands = [
+	"ury.commands.seed_demo_data",
+]
+
 # Testing
 # -------
 
-# before_tests = "ury.install.before_tests"
+before_tests = "ury.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
@@ -315,6 +395,15 @@ extend_bootinfo = [
 # 	"ury.auth.validate"
 # ]
 
+# HUF (AI assistant app) tool registration — read only if huf is installed
+# alongside this app. HUF's own `huf.ai.tool_registry.sync_app_tools`
+# (registered under HUF's `after_migrate`) reads this hook across every
+# installed app on `bench migrate` and syncs the listed tools into
+# `Agent Tool`/`Agent Tool Function` records. Safe to define even when huf is
+# not installed — an unused hook value is simply never read.
+# See tracks/sa-ai-reports-dashboard/HUF_API_NOTES.md for how this was confirmed.
+huf_tools = "ury.ury.ai_tools.ury_tools_registry.ALL_URY_TOOLS"
+
 fixtures = [
     {
         "doctype": "Custom Field",
@@ -328,6 +417,8 @@ fixtures = [
                     "POS Invoice-order_info",
                     "POS Invoice-order_type",
                     "POS Invoice-waiter",
+                    "POS Invoice-custom_waiter_employee",
+                    "POS Invoice-custom_closing_employee",
                     "POS Invoice-column_break_rwbwf",
                     "POS Invoice-no_of_pax",
                     "POS Invoice-cashier",
@@ -340,6 +431,9 @@ fixtures = [
                     "POS Invoice-print",
                     "POS Invoice-restaurant_table",
                     "POS Invoice-custom_merged_tables",
+                    "Production Plan Item-custom_ury_department",
+                    "URY KOT Items-custom_ury_work_order",
+                    "URY Sales Plan-custom_ury_production_plan",
                     "POS Invoice-custom_restaurant_room",
                     "POS Invoice-column_break_gd1mq",
                     "POS Invoice-arrived_time",
@@ -347,15 +441,20 @@ fixtures = [
                     "POS Invoice-section_break_hllcp",
                     "POS Invoice-cancel_reason",
                     "POS Invoice Item-comment",
+                    "POS Invoice Item-reservation_line_key",
                     "POS Invoice Item-custom_course",
                     "POS Invoice-custom_merged_total",
                     "POS Invoice-custom_merged_pos_invoice_details",
                     "POS Invoice-custom_merged_pos_invoice",
                     "POS Invoice-custom_bill_merge_details_section",
+                    "POS Invoice-staff_discount_policy",
+                    "POS Invoice Item-custom_entered_by_employee",
                     "Sales Invoice-mobile_number",
                     "Sales Invoice-order_info",
                     "Sales Invoice-order_type",
                     "Sales Invoice-waiter",
+                    "Sales Invoice-custom_waiter_employee",
+                    "Sales Invoice-custom_closing_employee",
                     "Sales Invoice-column_break_bc56k",
                     "Sales Invoice-no_of_pax",
                     "Sales Invoice-cashier",
@@ -384,6 +483,7 @@ fixtures = [
                     "POS Profile-role_restricted_for_table_order",
                     "POS Profile-view_all_status",
                     "POS Profile-remove_items",
+                    "POS Profile-custom_qty_reduction_allowed_order_types",
                     "POS Profile-restaurant_prefix",
                     "POS Profile-show_image",
                     "POS Profile-custom_daily_pos_close",
@@ -396,6 +496,7 @@ fixtures = [
                     "POS Opening Entry-branch",
                     "POS Opening Entry-custom_room",
                     "Branch-user",
+                    "Branch-company",
                     "Branch-custom_aggregator_settings",
                     "Branch-custom_aggregators",
                     "Branch-custom_make_unpaid",
@@ -409,6 +510,7 @@ fixtures = [
                     "POS Opening Entry-custom_rooms",
                     "POS Opening Entry-custom_sub_pos_close_entry",
                     "POS Closing Entry Detail-custom_closing_amount",
+                    "POS Closing Entry-branch",
                     "POS Profile-custom_edit_order_type",
                     "Printer Settings-kot_print_format_",
                     "Printer Settings-kot",
@@ -434,8 +536,33 @@ fixtures = [
                     "POS Profile-custom_column_break_wwq3q",
                     "POS Profile-custom_table_order_printer",
                     "POS Profile-custom_reprint_kot_format",
+                    "POS Profile-buying_price_list",
+                    "POS Profile-high_margin",
+                    "POS Profile-low_margin",
+                    "POS Profile-high_volume",
+                    "POS Profile-low_volume",
+                    "POS Profile-high_food_cost",
+                    "Cost Center-branch",
+                    "Journal Entry-branch",
                     "Employee-payment_amount",
-                    "Employee-payment_type"
+                    "Employee-payment_type",
+                    "Item-custom_yield_check_cadence",
+                    "Item-custom_yield_check_interval_days",
+                    "Item-custom_yield_percent",
+                    "Item-custom_yield_tracked",
+                    "BOM Item-custom_yield_qty",
+                    "BOM Item-custom_yield_percent",
+                    "Item-disposable_items",
+                    "Item-is_disposable",
+                    "POS Invoice Item-is_disposable",
+                    "POS Invoice Item-disposable_items",
+                    "POS Profile-parcel_disposables",
+                    "POS Profile-table_disposables",
+                    "Stock Reconciliation-branch",
+                    "Stock Entry-branch",
+                    "Stock Entry-custom_ury_posting_intent",
+                    "POS Profile-cash_discount_account",
+                    "Sales Invoice-cash_discount_journal_entry"
                 },
             ]
         ],
@@ -447,7 +574,9 @@ fixtures = [
                 "name",
                 "in",
                 {
-                    "POS Closing Entry Detail-closing_amount-label"
+                    "POS Closing Entry Detail-closing_amount-label",
+                    "POS Invoice Item-qty-allow_on_submit",
+                    "POS Invoice-items-allow_on_submit",
                 }
             ]
         ],
@@ -455,4 +584,5 @@ fixtures = [
     {"dt": "Role", "filters": [["role_name", "like", "URY %"]]},
     {"doctype": "Role", "filters": [["role_name", "in", ["Self Ordering Manager"]]]},
     "Client Script",
+    {"doctype": "Workflow", "filters": [["name", "in", ["URY Sales Plan"]]]},
 ]

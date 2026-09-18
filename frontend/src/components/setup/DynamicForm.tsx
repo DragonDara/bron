@@ -9,6 +9,7 @@ import { DatePicker } from './DatePicker';
 import { validateFieldValue } from '@ury/core';
 import { SetupPayload } from '../../services/setup';
 import validationMessages from '../../data/validations.json';
+import { translate } from '../../i18n/translate';
 
 export interface DynamicFormHandle {
   validate(): boolean;
@@ -60,7 +61,7 @@ const { registry } = defineRegistry(formCatalog, {
     FormSection: ({ props, children }) => (
       <div className="w-full space-y-4">
         {props.label && (
-          <h3 className="text-md font-semibold text-foreground">{props.label}</h3>
+          <h3 className="text-sm font-semibold text-foreground">{props.label}</h3>
         )}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-x-6 gap-y-4 w-full">
           {children}
@@ -92,8 +93,8 @@ const { registry } = defineRegistry(formCatalog, {
       return (
         <div className={getColSpanClass(field)}>
           <div className="space-y-1.5">
-            <label htmlFor={field.id} className="text-sm font-medium text-gray-700">
-              {field.label} {field.required && <span className="text-red-500">*</span>}
+            <label htmlFor={field.id} className="text-sm font-medium text-muted-foreground">
+              {translate(field.label)} {field.required && <span className="text-destructive">*</span>}
             </label>
 
             {field.type === 'text' || field.type === 'password' || field.type === 'email' ? (
@@ -110,7 +111,7 @@ const { registry } = defineRegistry(formCatalog, {
                 id={field.id}
                 value={val || ''}
                 options={props.options || []}
-                placeholder={`Select ${field.label}...`}
+                placeholder={translate('Select {{label}}...', { label: translate(field.label) })}
                 error={!!props.error}
                 onChange={(_fieldId, newVal) => handleChange(newVal)}
                 strict={true}
@@ -126,9 +127,9 @@ const { registry } = defineRegistry(formCatalog, {
             ) : null}
 
             {props.error ? (
-              <p className="text-xs text-red-500 pt-1">{props.error}</p>
+              <p className="text-xs text-destructive pt-1">{props.error}</p>
             ) : field.description ? (
-              <p className="text-xs text-gray-500 pt-1">{field.description}</p>
+              <p className="text-xs text-text-tertiary pt-1">{field.description}</p>
             ) : null}
           </div>
         </div>

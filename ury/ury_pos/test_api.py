@@ -287,6 +287,7 @@ class TestURYPosAPI(FrappeTestCase):
 import frappe
 import unittest
 from ury.ury_pos.api import create_customer
+from ury.ury.tests.factories import make_user
 
 class TestUryPosApi(unittest.TestCase):
     def setUp(self):
@@ -305,14 +306,11 @@ class TestUryPosApi(unittest.TestCase):
 
         # Create a test user with Customer creation rights
         if not frappe.db.exists("User", "test_authorized_user@example.com"):
-            user = frappe.get_doc({
-                "doctype": "User",
-                "email": "test_authorized_user@example.com",
-                "first_name": "Test Authorized",
-                "send_welcome_email": 0
-            })
-            user.insert(ignore_permissions=True)
-            user.add_roles("System Manager")
+            make_user(
+                email="test_authorized_user@example.com",
+                roles=["System Manager"],
+                first_name="Test Authorized",
+            )
 
     def tearDown(self):
         frappe.set_user("Administrator")
@@ -551,7 +549,7 @@ class TestSubmitChecklistSEC10(FrappeTestCase):
         # Mock the append() method to actually append to the items list
         def mock_append(key, value):
             if key == "items":
-                items_list.append(MagicMock(**value))
+                items_list.append(frappe._dict(value))
 
         mock_log_doc.append = mock_append
 
@@ -560,16 +558,18 @@ class TestSubmitChecklistSEC10(FrappeTestCase):
     @patch("ury.ury_pos.api.frappe.get_all")
     @patch("ury.ury_pos.api.frappe.new_doc")
     @patch("ury.ury_pos.api.frappe.utils.now")
+    @patch("ury.ury_pos.api.frappe.db.exists")
     @patch("ury.ury_pos.api.frappe.session")
     @patch("ury.ury_pos.api.getBranch")
     @patch("ury.ury_pos.api._validate_checklist_branch")
     def test_submit_checklist_all_mandatory_checked(
-        self, mock_validate_branch, mock_get_branch, mock_session, mock_now, mock_new_doc, mock_get_all
+        self, mock_validate_branch, mock_get_branch, mock_session, mock_db_exists, mock_now, mock_new_doc, mock_get_all
     ):
         """Test that submit_checklist returns status='Complete' when all mandatory items are checked."""
         # Setup mocks
         mock_session.user = "test_user@example.com"
         mock_get_branch.return_value = "Branch A"
+        mock_db_exists.return_value = True
         mock_now.return_value = "2025-01-15 10:30:00"
 
         # Mock configured items - all mandatory
@@ -615,16 +615,18 @@ class TestSubmitChecklistSEC10(FrappeTestCase):
     @patch("ury.ury_pos.api.frappe.get_all")
     @patch("ury.ury_pos.api.frappe.new_doc")
     @patch("ury.ury_pos.api.frappe.utils.now")
+    @patch("ury.ury_pos.api.frappe.db.exists")
     @patch("ury.ury_pos.api.frappe.session")
     @patch("ury.ury_pos.api.getBranch")
     @patch("ury.ury_pos.api._validate_checklist_branch")
     def test_submit_checklist_mandatory_unchecked(
-        self, mock_validate_branch, mock_get_branch, mock_session, mock_now, mock_new_doc, mock_get_all
+        self, mock_validate_branch, mock_get_branch, mock_session, mock_db_exists, mock_now, mock_new_doc, mock_get_all
     ):
         """Test that submit_checklist returns status='In Progress' when at least one mandatory item is unchecked."""
         # Setup mocks
         mock_session.user = "test_user@example.com"
         mock_get_branch.return_value = "Branch A"
+        mock_db_exists.return_value = True
         mock_now.return_value = "2025-01-15 10:30:00"
 
         # Mock configured items - mix of mandatory and optional

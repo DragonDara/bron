@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback, useLayoutEffect } from 'react';
+import { ru, enUS } from 'date-fns/locale';
+import { resolveManagementLanguage } from '../../i18n/language';
 import {
   startOfDay,
   endOfDay,
@@ -330,7 +332,7 @@ export function DatePicker({
                     isDisabled
                       ? 'text-gray-300 cursor-not-allowed'
                       : isSelected
-                      ? 'bg-primary text-white font-bold cursor-pointer'
+                      ? 'bg-foreground text-background font-bold cursor-pointer'
                       : 'text-gray-800 hover:bg-gray-100 cursor-pointer'
                   }`}
                 >
@@ -509,7 +511,8 @@ export function UryDateRangePicker({ value, onChange, className }: UryDateRangeP
     }
   };
 
-  const labelText = `${format(value.from, 'MMM d, yyyy')} - ${format(value.to, 'MMM d, yyyy')}`;
+  const locale = resolveManagementLanguage() === 'ru' ? ru : enUS;
+  const labelText = `${format(value.from, 'PP', { locale })} — ${format(value.to, 'PP', { locale })}`;
 
   return (
     <div ref={containerRef} className={`relative inline-block ${className ?? ''}`}>
@@ -599,11 +602,11 @@ export function UryDateRangePicker({ value, onChange, className }: UryDateRangeP
 
               let styleClasses = 'text-gray-800 hover:bg-gray-100 rounded-lg';
               if (isStart && isEnd) {
-                styleClasses = 'bg-primary text-white font-bold rounded-lg';
+                styleClasses = 'bg-foreground text-background font-bold rounded-lg';
               } else if (isStart) {
-                styleClasses = 'bg-primary text-white font-bold rounded-l-lg';
+                styleClasses = 'bg-foreground text-background font-bold rounded-l-lg';
               } else if (isEnd) {
-                styleClasses = 'bg-primary text-white font-bold rounded-r-lg';
+                styleClasses = 'bg-foreground text-background font-bold rounded-r-lg';
               } else if (inRange) {
                 styleClasses = 'bg-primary/10 text-primary font-medium rounded-none';
               }

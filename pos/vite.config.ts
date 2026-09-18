@@ -24,4 +24,9 @@ export default defineConfig({
     outDir: "../ury/public/pos",
     emptyOutDir: true,
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    testTimeout: 8000,
+  },
 })
