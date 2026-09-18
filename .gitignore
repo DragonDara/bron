@@ -27,3 +27,7 @@ ury/www/serve.html
 ury/public/serve
 
 *.lock
+
+# Local bench bootstrap artifacts
+easy-install.log
+package-lock.json
