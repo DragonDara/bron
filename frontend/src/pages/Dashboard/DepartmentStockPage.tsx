@@ -1,3 +1,4 @@
+import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
@@ -81,7 +82,7 @@ function getErrorMessage(err: any, fallback: string): string {
 const formatQty = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(2));
 
 const formatCurrency = (value: number) =>
-  value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  value.toLocaleString(getManagementLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Mirrors `StoreIssuePage.tsx`'s badge mapping for `URY Issue
  * Authorization.status`. */

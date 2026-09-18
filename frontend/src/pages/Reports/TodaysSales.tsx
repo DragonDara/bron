@@ -1,3 +1,5 @@
+import { getManagementLocale } from '../../i18n/language';
+import { getManagementLocale } from '../../i18n/language';
 import { useCallback, useEffect, useState } from 'react';
 import { call, formatCurrency } from '@ury/core';
 import { KpiStrip, type KpiItemProps, DatePicker, DataTable, type DataTableColumn, PageHeader } from '@ury/ui';

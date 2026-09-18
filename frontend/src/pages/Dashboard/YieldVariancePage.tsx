@@ -1,3 +1,4 @@
+import { getManagementLocale } from '../../i18n/language';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Page,
@@ -28,7 +29,7 @@ const ALL_ITEMS_OPTION: AutocompleteOption = { value: '', label: 'All items' };
 
 const formatDateTime = (value?: string) => {
   if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(getManagementLocale());
 };
 
 const formatPercent = (value: number) => {
