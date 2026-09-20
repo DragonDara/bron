@@ -8,6 +8,7 @@ export interface CustomerPickerProps {
   value: Customer | null;
   onChange: (customer: Customer | null) => void;
   disabled?: boolean;
+  optional?: boolean;
 }
 
 function parseCustomer(row: { name: string; content?: string }): CustomerOption {
@@ -18,7 +19,7 @@ function parseCustomer(row: { name: string; content?: string }): CustomerOption 
   };
 }
 
-export function CustomerPicker({ value, onChange, disabled }: CustomerPickerProps) {
+export function CustomerPicker({ value, onChange, disabled, optional }: CustomerPickerProps) {
   const [results, setResults] = useState<CustomerOption[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export function CustomerPicker({ value, onChange, disabled }: CustomerPickerProp
         };
       }}
       labels={{
-        placeholder: t('customer.search_placeholder'),
+        placeholder: t(optional ? 'customer.search_placeholder_optional' : 'customer.search_placeholder'),
         addNew: t('customer.add_new'),
         nameLabel: t('customer.name_label'),
         phoneLabel: t('customer.phone_label'),
