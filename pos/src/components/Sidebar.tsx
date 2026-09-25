@@ -43,18 +43,18 @@ const Sidebar = ({ disabled }: SidebarProps) => {
           <Button
             onClick={() => setSelectedCategory('')}
             variant="ghost"
-            className={sidebarItemVariants({ active: selectedCategory === '' }) + ' mb-1'}
+            className={sidebarItemVariants({ active: selectedCategory === '' }) + ' mb-1 h-auto min-h-9 whitespace-normal'}
             disabled={disabled}
           >
             {/* Active indicator bar */}
             {selectedCategory === '' && <SidebarActiveIndicator />}
             
-            <div className="flex items-center gap-3 ms-1">
+            <div className="flex min-w-0 flex-1 items-center gap-3 ms-1">
               <Grid3X3 className="w-4 h-4 text-gray-500" />
-              <span>{t('pos_sidebar.all_items')}</span>
+              <span className="min-w-0 break-words text-start leading-snug">{t('pos_sidebar.all_items')}</span>
             </div>
             
-            <Badge variant="secondary" size="sm" className="text-xs text-gray-500 bg-gray-100 min-w-[24px] text-center">
+            <Badge variant="secondary" size="sm" className="ms-2 shrink-0 text-xs text-gray-500 bg-gray-100 min-w-[24px] text-center">
               {getAllItemsCount()}
             </Badge>
           </Button>
@@ -72,20 +72,20 @@ const Sidebar = ({ disabled }: SidebarProps) => {
                   key={category.name}
                   onClick={() => setSelectedCategory(category.name)}
                   variant="ghost"
-                  className={sidebarItemVariants({ active: isActive })}
+                  className={sidebarItemVariants({ active: isActive }) + ' h-auto min-h-9 whitespace-normal'}
                   disabled={disabled}
                 >
                   {/* Active indicator bar */}
                   {isActive && <SidebarActiveIndicator />}
-                  <div className="flex items-center gap-3 ms-1">
+                  <div className="flex min-w-0 flex-1 items-center gap-3 ms-1">
                     <CategoryIcon
                       name={category.icon}
                       courseName={category.name}
                       className="w-4 h-4 text-gray-500 flex-shrink-0"
                     />
-                    <span className="text-start">{category.label}</span>
+                    <span className="min-w-0 break-words text-start leading-snug">{category.label}</span>
                   </div>
-                  <Badge variant="secondary" size="sm" className="text-xs text-gray-500 bg-gray-100 min-w-[24px] text-center">
+                  <Badge variant="secondary" size="sm" className="ms-2 shrink-0 text-xs text-gray-500 bg-gray-100 min-w-[24px] text-center">
                     {count}
                   </Badge>
                 </Button>
@@ -106,4 +106,4 @@ const Sidebar = ({ disabled }: SidebarProps) => {
   );
 };
 
-export default Sidebar; 
+export default Sidebar;

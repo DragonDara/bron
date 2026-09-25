@@ -31,3 +31,6 @@ ury/public/serve
 # Local bench bootstrap artifacts
 easy-install.log
 package-lock.json
+
+.dockerignore
+Dockerfile.bron
