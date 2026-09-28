@@ -35,7 +35,7 @@ vi.mock('@ury/ui', () => ({
   }: {
     value: { id: string; name: string; phone: string } | null;
     onChange: (customer: { id: string; name: string; phone: string } | null) => void;
-    results: Array<{ id: string; name: string; phone: string }>;
+    results: Array<{ id: string; name: string; phone: string; typeLabel?: string }>;
     searching?: boolean;
     onSearch: (query: string) => void;
     disabled?: boolean;
@@ -87,7 +87,10 @@ vi.mock('@ury/ui', () => ({
           <div>
             {searching && <span>{labels.searching}</span>}
             {results.map((customer) => (
-              <div key={customer.id}>{customer.name}</div>
+              <div key={customer.id}>
+                {customer.name}
+                {customer.typeLabel ? ` — ${customer.typeLabel}` : ''}
+              </div>
             ))}
             {query.trim() && !searching && results.length === 0 && (
               <span>{labels.noResults}</span>
@@ -203,6 +206,28 @@ describe('CustomerPicker', () => {
     await waitFor(() => {
       expect(screen.getByText('John Doe')).toBeTruthy();
     }, { timeout: 1500 });
+  });
+
+  it('labels search results with the translated customer type', async () => {
+    mockSearchCustomers.mockResolvedValueOnce([
+      { name: 'CUST-002', customer_type: 'Company', content: 'Customer Name : Acme | Mobile Number : 7011234567' },
+      { name: 'CUST-003', customer_type: 'Partnership', content: 'Customer Name : Duo | Mobile Number : 7019876543' },
+    ]);
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('customer.search_placeholder');
+    await userEvent.type(input, 'ac');
+
+    await waitFor(() => {
+      expect(screen.getByText('Acme — customer.type_company')).toBeTruthy();
+    }, { timeout: 1500 });
+    expect(screen.getByText('Duo — Partnership')).toBeTruthy();
   });
 
   it('disables search input when disabled prop is true', () => {

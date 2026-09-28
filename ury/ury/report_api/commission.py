@@ -13,21 +13,12 @@ from ury.ury.report_api.utils import (
 
 # The commission "base" (the amount commission is calculated on) has 4
 # possible SQL expressions depending on URY Commission Settings.commission_base.
-# "Net Sales" is the tricky one: when a discount was applied on Grand Total,
-# net_total alone overstates the base, so we pro-rate the discount back onto
-# net_total using its share of (net_total + total_taxes_and_charges).
+# ERPNext already distributes the document discount into net_total for both
+# "Net Total" and "Grand Total" discounts (POS Invoice has no cash/non-trade
+# discount mode), so net_total is the pre-tax, discount-adjusted amount and
+# must not be reduced again.
 _BASE_EXPR = {
-	"Net Sales": """
-		CASE
-		  WHEN b.`apply_discount_on` = 'Grand Total'
-		       AND IFNULL(b.`discount_amount`, 0) > 0
-		       AND (IFNULL(b.`net_total`,0) + IFNULL(b.`total_taxes_and_charges`,0)) <> 0
-		  THEN b.`net_total`
-		       - (b.`discount_amount` * b.`net_total`
-		          / (b.`net_total` + b.`total_taxes_and_charges`))
-		  ELSE b.`net_total`
-		END
-	""",
+	"Net Sales": "b.`net_total`",
 	"Net Total": "b.`net_total`",
 	"Item Total": "b.`total`",
 	"Grand Total": "b.`grand_total`",

@@ -1056,8 +1056,20 @@ def getAggregatorMOP(aggregator):
             {"mode_of_payment": modeOfPayment, "opening_amount": float(0)}
     )
     return modeOfPaymentsList
+POS_CUSTOMER_GROUP_BY_TYPE = {
+    "Individual": "Individual",
+    "Company": "Commercial",
+}
+
+
 @frappe.whitelist()
-def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory="India"):
+def create_customer(
+    customer_name,
+    mobile_number=None,
+    customer_group=None,
+    territory="India",
+    customer_type="Individual",
+):
     if not frappe.has_permission("Customer", "create"):
         frappe.throw("Not permitted to create customers", frappe.PermissionError)
         
@@ -1069,6 +1081,13 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
         validate_phone_number(mobile_number, throw=True)
     except Exception:
         frappe.throw("Invalid mobile number format")
+
+    customer_type = customer_type or "Individual"
+    if customer_type not in POS_CUSTOMER_GROUP_BY_TYPE:
+        frappe.throw(_("Invalid customer type: {0}").format(customer_type))
+    customer_group = customer_group or POS_CUSTOMER_GROUP_BY_TYPE[customer_type]
+    if not frappe.db.exists("Customer Group", customer_group):
+        frappe.throw(_("Customer Group {0} does not exist").format(customer_group))
 
     """Create a new customer"""
     try:
@@ -1082,6 +1101,7 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
         customer = frappe.get_doc({
             "doctype": "Customer",
             "customer_name": customer_name,
+            "customer_type": customer_type,
             "mobile_number": mobile_number,
             "customer_group": customer_group,
             "territory": territory
@@ -1096,6 +1116,7 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
             # naming series ≠ customer_name (e.g. CUST-00042 vs "Alice").
             "name": customer.name,
             "customer_name": customer_name,
+            "customer_type": customer_type,
             "mobile_number": mobile_number,
             "customer_group": customer_group,
             "territory": territory

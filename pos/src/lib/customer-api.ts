@@ -30,9 +30,12 @@ export interface Customer {
   portal_users: any[];
 }
 
+export type PosCustomerType = 'Individual' | 'Company';
+
 export interface CreateCustomerData {
   customer_name: string;
   mobile_number: string;
+  customer_type?: PosCustomerType;
   customer_group?: string;
   territory?: string;
   name?: string;
@@ -82,6 +85,7 @@ export async function addCustomer(
         name: msg.name,
         customer_name: msg.customer_name,
         mobile_number: msg.mobile_number,
+        customer_type: msg.customer_type,
         customer_group: msg.customer_group,
         territory: msg.territory
       }
@@ -104,7 +108,7 @@ export async function searchCustomers(search: string, limit = 5) {
 
   try {
     const res = await db.getDocList(DOCTYPES.CUSTOMER, {
-      fields: ["name", "customer_name", "mobile_number"],
+      fields: ["name", "customer_name", "mobile_number", "customer_type"],
       orFilters: [
         ["customer_name", "like", pattern],
         ["mobile_number", "like", pattern],

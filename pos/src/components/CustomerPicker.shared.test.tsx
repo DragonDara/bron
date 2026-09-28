@@ -147,4 +147,86 @@ describe('CustomerPicker keyboard and prefill', () => {
     expect(await screen.findByText('Failed to search customers')).toBeInTheDocument();
     expect(screen.queryByText('No customers found')).not.toBeInTheDocument();
   });
+
+  it('shows the customer type after the name in search results', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+        results={[{ ...alice, typeLabel: 'Company' }]}
+        onSearch={vi.fn()}
+        onCreate={vi.fn()}
+        labels={labels}
+      />
+    );
+
+    await user.click(screen.getByPlaceholderText('Search customer...'));
+    const option = screen.getByRole('button', { name: /Alice/ });
+    expect(option).toHaveTextContent('Alice — Company');
+  });
+
+  it('sends the selected customer type, defaulting to the first option', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(alice);
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+        results={[]}
+        onSearch={vi.fn()}
+        onCreate={onCreate}
+        labels={{ ...labels, customerTypeLabel: 'Customer Type' }}
+        customerTypeOptions={[
+          { value: 'Individual', label: 'Individual' },
+          { value: 'Company', label: 'Company' },
+        ]}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('Search customer...');
+    await user.click(input);
+    await user.type(input, 'Acme');
+    await user.click(screen.getByRole('button', { name: /add new customer/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    const typeGroup = within(dialog).getByRole('radiogroup', { name: 'Customer Type' });
+    expect(within(typeGroup).getByRole('radio', { name: 'Individual' })).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(within(typeGroup).getByRole('radio', { name: 'Company' }));
+    await user.type(within(dialog).getByLabelText('Phone'), '77011234567');
+    await user.click(within(dialog).getByRole('button', { name: 'Add Customer' }));
+
+    expect(onCreate).toHaveBeenCalledWith({ name: 'Acme', phone: '77011234567', customerType: 'Company' });
+  });
+
+  it('hides the customer type selector when no options are given', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(alice);
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+        results={[]}
+        onSearch={vi.fn()}
+        onCreate={onCreate}
+        labels={labels}
+      />
+    );
+
+    await user.click(screen.getByPlaceholderText('Search customer...'));
+    await user.click(screen.getByRole('button', { name: /add new customer/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('radiogroup')).not.toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText('Name'), 'Bob');
+    await user.type(within(dialog).getByLabelText('Phone'), '555');
+    await user.click(within(dialog).getByRole('button', { name: 'Add Customer' }));
+
+    expect(onCreate).toHaveBeenCalledWith({ name: 'Bob', phone: '555' });
+  });
 });

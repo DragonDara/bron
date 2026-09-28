@@ -3,12 +3,15 @@ import { ChevronDown, Loader, Phone, UserPlus } from 'lucide-react'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog'
 import { Input } from './input'
+import { SegmentedControl, type SegmentedOption } from './segmented-control'
 import { cn } from '../lib/cn'
 
 export interface CustomerOption {
   id: string
   name: string
   phone: string
+  /** Shown after the name in search results, e.g. "Alice — Company". */
+  typeLabel?: string
 }
 
 export interface CustomerPickerLabels {
@@ -30,6 +33,15 @@ export interface CustomerPickerLabels {
   searchFailed?: string
   searching: string
   createTitle: string
+  /** Create-dialog label for the customer type selector. */
+  customerTypeLabel?: string
+}
+
+export interface CustomerCreateData {
+  name: string
+  phone: string
+  /** Set only when `customerTypeOptions` is provided. */
+  customerType?: string
 }
 
 export interface CustomerPickerProps {
@@ -39,10 +51,12 @@ export interface CustomerPickerProps {
   searching?: boolean
   searchError?: string | null
   onSearch: (query: string) => void
-  onCreate: (data: { name: string; phone: string }) => Promise<CustomerOption>
+  onCreate: (data: CustomerCreateData) => Promise<CustomerOption>
   disabled?: boolean
   labels: CustomerPickerLabels
   favourites?: Array<{ name: string; onSelect: () => void }>
+  /** Shows a customer type selector in the create dialog; the first option is the default. */
+  customerTypeOptions?: SegmentedOption[]
 }
 
 function prefillFromQuery(query: string): { name: string; phone: string } {
@@ -62,13 +76,16 @@ export function CustomerPicker({
   disabled,
   labels,
   favourites,
+  customerTypeOptions,
 }: CustomerPickerProps) {
+  const defaultCustomerType = customerTypeOptions?.[0]?.value ?? ''
   const [query, setQuery] = useState('')
   const [listOpen, setListOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [customerType, setCustomerType] = useState(defaultCustomerType)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const onSearchRef = useRef(onSearch)
@@ -92,6 +109,7 @@ export function CustomerPicker({
     const prefill = prefillFromQuery(fromQuery)
     setName(prefill.name)
     setPhone(prefill.phone)
+    setCustomerType(defaultCustomerType)
     setError('')
     setCreateOpen(true)
     setListOpen(false)
@@ -103,7 +121,11 @@ export function CustomerPicker({
     setCreating(true)
     setError('')
     try {
-      const created = await onCreate({ name: name.trim(), phone: phone.trim() })
+      const created = await onCreate({
+        name: name.trim(),
+        phone: phone.trim(),
+        ...(customerTypeOptions?.length ? { customerType } : {}),
+      })
       onChange(created)
       setCreateOpen(false)
       setName('')
@@ -206,7 +228,12 @@ export function CustomerPicker({
                     }}
                   >
                     <div className="text-left">
-                      <div className="font-medium">{customer.name}</div>
+                      <div className="font-medium">
+                        {customer.name}
+                        {customer.typeLabel && (
+                          <span className="font-normal text-gray-500"> — {customer.typeLabel}</span>
+                        )}
+                      </div>
                       <div className="text-xs text-gray-500">{customer.phone}</div>
                     </div>
                   </Button>
@@ -287,6 +314,21 @@ export function CustomerPicker({
                 <Phone className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
               </div>
             </div>
+            {customerTypeOptions && customerTypeOptions.length > 0 && (
+              <div>
+                <span className="mb-1 block text-sm font-medium">
+                  {labels.customerTypeLabel}
+                </span>
+                <SegmentedControl
+                  value={customerType}
+                  options={customerTypeOptions}
+                  onChange={setCustomerType}
+                  disabled={creating}
+                  aria-label={labels.customerTypeLabel}
+                  className="w-full [&>button]:flex-1"
+                />
+              </div>
+            )}
             <div className="flex gap-3">
               <Button type="submit" className="flex-1" disabled={creating}>
                 {creating ? (

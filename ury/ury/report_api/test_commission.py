@@ -169,60 +169,25 @@ class TestApplyTiers(FrappeTestCase):
 
 
 class TestCommissionBaseExpressions(FrappeTestCase):
-	"""The 4 commission_base expressions, verified against a fixture-shaped
-	dict emulating a POS Invoice row with a Grand-Total-applied discount --
-	the case where net_total alone would be wrong for "Net Sales".
+	"""The 4 commission_base expressions map onto the POS Invoice columns
+	ERPNext stores. For a Grand-Total discount ERPNext has already spread the
+	discount into net_total (taxes_and_totals.apply_discount_amount), e.g.
+	total 2040, 12% tax, 10% discount on Grand Total stores net_total 1836,
+	tax 220.32, grand_total 2056.32 -- so "Net Sales" must read net_total as
+	is instead of subtracting the discount a second time."""
 
-	No bench/DB access here (see module docstring on hand-tracing) -- this
-	re-implements the SQL CASE expression in Python against the exact
-	fixture values and asserts the arithmetic, which is what the SQL
-	expression is designed to compute.
-	"""
-
-	# Fixture invoice: total (item total) = 1000, net_total = 950 (after a
-	# 5% item-level discount), total_taxes_and_charges = 50, grand_total =
-	# 1000 (950 + 50 tax), apply_discount_on = 'Grand Total' with an
-	# additional discount_amount = 100 applied on top of grand_total.
-	FIXTURE = {
-		"total": 1000.0,
-		"net_total": 950.0,
-		"total_taxes_and_charges": 50.0,
-		"grand_total": 900.0,  # 1000 - 100 discount
-		"apply_discount_on": "Grand Total",
-		"discount_amount": 100.0,
-	}
-
-	def _net_sales(self, f):
-		if (
-			f["apply_discount_on"] == "Grand Total"
-			and (f.get("discount_amount") or 0) > 0
-			and (f.get("net_total", 0) + f.get("total_taxes_and_charges", 0)) != 0
-		):
-			return f["net_total"] - (
-				f["discount_amount"] * f["net_total"]
-				/ (f["net_total"] + f["total_taxes_and_charges"])
-			)
-		return f["net_total"]
-
-	def test_net_sales_prorates_discount(self):
-		# 950 - (100 * 950 / 1000) = 950 - 95 = 855
-		self.assertAlmostEqual(self._net_sales(self.FIXTURE), 855.0, places=2)
-		# Confirms net_total alone (950) would be wrong -- must differ.
-		self.assertNotEqual(round(self._net_sales(self.FIXTURE), 2), self.FIXTURE["net_total"])
-
-	def test_net_sales_no_discount_falls_back_to_net_total(self):
-		f = dict(self.FIXTURE, discount_amount=0)
-		# discount_amount == 0 short-circuits to net_total
-		self.assertEqual(self._net_sales(f), f["net_total"])
+	def test_net_sales_reads_net_total_without_second_discount(self):
+		self.assertEqual(commission._BASE_EXPR["Net Sales"].strip(), "b.`net_total`")
+		self.assertNotIn("discount_amount", commission._BASE_EXPR["Net Sales"])
 
 	def test_net_total_expression(self):
-		self.assertEqual(self.FIXTURE["net_total"], 950.0)
+		self.assertEqual(commission._BASE_EXPR["Net Total"], "b.`net_total`")
 
 	def test_item_total_expression(self):
-		self.assertEqual(self.FIXTURE["total"], 1000.0)
+		self.assertEqual(commission._BASE_EXPR["Item Total"], "b.`total`")
 
 	def test_grand_total_expression(self):
-		self.assertEqual(self.FIXTURE["grand_total"], 900.0)
+		self.assertEqual(commission._BASE_EXPR["Grand Total"], "b.`grand_total`")
 
 	def test_base_expr_map_has_all_four_keys(self):
 		self.assertEqual(

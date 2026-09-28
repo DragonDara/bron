@@ -37,14 +37,11 @@ export function SegmentedControl<T extends string = string>({
             type="button"
             role="radio"
             aria-checked={selected}
-            variant="ghost"
+            variant={selected ? 'solid' : 'ghost'}
             size="sm"
             disabled={disabled}
             onClick={() => onChange(option.value)}
-            className={cn(
-              'h-8 rounded-md px-3',
-              selected && 'bg-white shadow-sm hover:bg-white'
-            )}
+            className="h-8 rounded-md px-3"
           >
             {option.label}
           </Button>

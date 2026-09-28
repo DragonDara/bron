@@ -403,6 +403,45 @@ class TestCreateCustomerLinkId(unittest.TestCase):
         mock_validate.assert_called_once()
 
 
+class TestCreateCustomerType(unittest.TestCase):
+    """The POS customer type drives both Customer Type and Customer Group."""
+
+    def _create(self, **kwargs):
+        with patch("ury.ury_pos.api.validate_phone_number"), \
+                patch("ury.ury_pos.api.frappe.db.commit"), \
+                patch("ury.ury_pos.api.frappe.db.exists", return_value=True), \
+                patch("ury.ury_pos.api.frappe.has_permission", return_value=True), \
+                patch("ury.ury_pos.api.frappe.get_doc") as mock_get_doc:
+            mock_get_doc.return_value = MagicMock()
+            result = create_customer("Guest", "+77011234567", **kwargs)
+            return result, mock_get_doc.call_args[0][0]
+
+    def test_defaults_to_individual(self):
+        result, payload = self._create()
+        self.assertEqual(payload["customer_type"], "Individual")
+        self.assertEqual(payload["customer_group"], "Individual")
+        self.assertEqual(result["customer_type"], "Individual")
+
+    def test_company_maps_to_commercial_group(self):
+        result, payload = self._create(customer_type="Company")
+        self.assertEqual(payload["customer_type"], "Company")
+        self.assertEqual(payload["customer_group"], "Commercial")
+        self.assertEqual(result["customer_group"], "Commercial")
+
+    @patch("ury.ury_pos.api.validate_phone_number")
+    @patch("ury.ury_pos.api.frappe.has_permission", return_value=True)
+    def test_rejects_unsupported_type(self, _mock_has_permission, _mock_validate):
+        with self.assertRaises(frappe.ValidationError):
+            create_customer("Guest", "+77011234567", customer_type="Partnership")
+
+    @patch("ury.ury_pos.api.validate_phone_number")
+    @patch("ury.ury_pos.api.frappe.db.exists", return_value=False)
+    @patch("ury.ury_pos.api.frappe.has_permission", return_value=True)
+    def test_rejects_missing_customer_group(self, _mock_has_permission, _mock_exists, _mock_validate):
+        with self.assertRaises(frappe.ValidationError):
+            create_customer("Guest", "+77011234567", customer_type="Company")
+
+
 import frappe
 import unittest
 from ury.ury_pos.api import create_customer
