@@ -16,7 +16,7 @@ add_to_apps_screen = [
     "name": "ury",
     "logo": "/assets/ury/Images/ury.png",
     "title": "URY",
-    "route": "/app/ury",
+    "route": "/ury",
     "has_permission": "ury.permission.check_app_permission"
   }
 ]
@@ -465,6 +465,7 @@ fixtures = [
                     "POS Invoice-restaurant_table",
                     "POS Invoice-custom_merged_tables",
                     "Production Plan Item-custom_ury_department",
+                    "Production Plan Item-custom_ury_no_work_order",
                     # Present on site and in the shipped fixture, but absent
                     # from this filter, so every `bench export-fixtures` dropped
                     # them from custom_field.json. Listed here so the export is
