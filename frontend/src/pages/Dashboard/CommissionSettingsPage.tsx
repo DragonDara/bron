@@ -35,9 +35,11 @@ interface Rule {
   tiers: Tier[];
 }
 
+type CommissionBase = 'Net Sales' | 'Individual Price' | 'Net Total' | 'Item Total' | 'Grand Total';
+
 interface CommissionSettings {
   enabled: boolean;
-  commission_base: 'Net Sales' | 'Net Total' | 'Item Total' | 'Grand Total';
+  commission_base: CommissionBase;
   include_returns: boolean;
   attribution_mode: 'Opener' | 'Closer' | 'Split Evenly' | 'Split By Contribution';
   default_rate: number;
@@ -262,7 +264,7 @@ export const CommissionSettingsPage: React.FC = () => {
     try {
       const payload: CommissionSettings = {
         enabled,
-        commission_base: commissionBase as 'Net Sales' | 'Net Total' | 'Item Total' | 'Grand Total',
+        commission_base: commissionBase as CommissionBase,
         include_returns: includeReturns,
         attribution_mode: attributionMode as 'Opener' | 'Closer' | 'Split Evenly' | 'Split By Contribution',
         default_rate: defaultRate,
@@ -332,12 +334,16 @@ export const CommissionSettingsPage: React.FC = () => {
                 <label className="block text-sm font-medium text-foreground mb-1.5">Commission Base</label>
                 <Select value={commissionBase} onValueChange={setCommissionBase}>
                   <SelectItem value="Net Sales">Net Sales</SelectItem>
+                  <SelectItem value="Individual Price">Individual Price</SelectItem>
                   <SelectItem value="Net Total">Net Total</SelectItem>
                   <SelectItem value="Item Total">Item Total</SelectItem>
                   <SelectItem value="Grand Total">Grand Total</SelectItem>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">
                   Net Sales: pre-tax revenue, discount-adjusted (recommended). Net Total: pre-tax as recorded. Item Total: sum of item prices before document discount. Grand Total: includes tax (not recommended).
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Individual Price: like Grand Total (with taxes, after discounts), but orders charged from a customer price list are counted at standard menu prices.
                 </p>
               </div>
 

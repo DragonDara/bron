@@ -18,7 +18,7 @@ import {
   Spinner,
   numericCellClass,
 } from '@ury/ui';
-import { getLoggedUser, getUserRoles } from '@ury/core';
+import { getCurrencySymbol, getLoggedUser, getUserRoles } from '@ury/core';
 
 // Mirrors the identical helper in StockReservationPage.tsx / PaymentTerminalPage.tsx.
 const formatDateTime = (value?: string) => {
@@ -272,7 +272,7 @@ const WastageContent: React.FC = () => {
     const items: KpiItemProps[] = [
       {
         label: "Total Wastage Value",
-        value: `Rs. ${formatCurrency(totalValue)}`,
+        value: `${getCurrencySymbol()} ${formatCurrency(totalValue)}`,
         tone: 'danger',
       },
       {
@@ -283,7 +283,7 @@ const WastageContent: React.FC = () => {
       {
         label: 'Highest Department',
         value: highestDepartment ? highestDepartment.name : 'N/A',
-        hint: highestDepartment ? `Rs. ${formatCurrency(highestDepartment.value)}` : undefined,
+        hint: highestDepartment ? `${getCurrencySymbol()} ${formatCurrency(highestDepartment.value)}` : undefined,
         tone: 'warning',
       },
     ];
@@ -318,7 +318,7 @@ const WastageContent: React.FC = () => {
       align: 'right',
       render: (row) => (
         <span className={numericCellClass}>
-          {row.valuation_amount !== undefined ? `Rs. ${formatCurrency(row.valuation_amount)}` : '-'}
+          {row.valuation_amount !== undefined ? `${getCurrencySymbol()} ${formatCurrency(row.valuation_amount)}` : '-'}
         </span>
       ),
     },
@@ -440,10 +440,10 @@ const WastageContent: React.FC = () => {
             {selectedRow.branch !== undefined && <KeyValueRow label="Branch" value={selectedRow.branch} />}
             {selectedRow.company !== undefined && <KeyValueRow label="Company" value={selectedRow.company} />}
             {selectedRow.valuation_rate !== undefined && (
-              <KeyValueRow label="Valuation rate" value={`Rs. ${formatCurrency(selectedRow.valuation_rate)}`} />
+              <KeyValueRow label="Valuation rate" value={`${getCurrencySymbol()} ${formatCurrency(selectedRow.valuation_rate)}`} />
             )}
             {selectedRow.valuation_amount !== undefined && (
-              <KeyValueRow label="Valuation amount" value={`Rs. ${formatCurrency(selectedRow.valuation_amount)}`} />
+              <KeyValueRow label="Valuation amount" value={`${getCurrencySymbol()} ${formatCurrency(selectedRow.valuation_amount)}`} />
             )}
             {(selectedRow.reason_category || selectedRow.reason_notes) && (
               <>

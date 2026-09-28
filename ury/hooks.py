@@ -516,6 +516,7 @@ fixtures = [
                     "POS Invoice-custom_bill_merge_details_section",
                     "POS Invoice-staff_discount_policy",
                     "POS Invoice Item-custom_entered_by_employee",
+                    "POS Invoice Item-custom_commission_base_rate",
                     "Sales Invoice-mobile_number",
                     "Sales Invoice-order_info",
                     "Sales Invoice-order_type",
