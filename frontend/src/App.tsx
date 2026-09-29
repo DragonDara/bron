@@ -49,6 +49,7 @@ import { ReportsHome } from './pages/Reports/ReportsHome';
 import { TodaysSales } from './pages/Reports/TodaysSales';
 import { DaywiseSales } from './pages/Reports/DaywiseSales';
 import { DaywiseInvoices } from './pages/Reports/DaywiseInvoices';
+import { ShiftInvoices } from './pages/Reports/ShiftInvoices';
 import { MonthWiseSales } from './pages/Reports/MonthWiseSales';
 import { TimeWiseSales } from './pages/Reports/TimeWiseSales';
 import { ServiceWiseSales } from './pages/Reports/ServiceWiseSales';
@@ -286,6 +287,7 @@ function AppRoutes() {
             <Route path="today-sales" element={<TodaysSales />} />
             <Route path="daywise-sales" element={<DaywiseSales />} />
             <Route path="daywise-invoices" element={<DaywiseInvoices />} />
+            <Route path="shift-invoices" element={<ShiftInvoices />} />
             <Route path="month-wise-sales" element={<MonthWiseSales />} />
             <Route path="time-wise-sales" element={<TimeWiseSales />} />
             <Route path="service-wise-sales" element={<ServiceWiseSales />} />

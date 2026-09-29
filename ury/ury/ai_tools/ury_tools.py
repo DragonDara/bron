@@ -24,6 +24,7 @@ from ury.ury.report_api import financial as _financial
 from ury.ury.report_api import items as _items
 from ury.ury.report_api import operations as _operations
 from ury.ury.report_api import sales as _sales
+from ury.ury.report_api import shift_invoices as _shift_invoices
 
 
 @frappe.whitelist(methods=["GET"])
@@ -143,6 +144,7 @@ _REPORT_DISPATCH = {
 	"today-sales": _sales.get_today_sales,
 	"daywise-sales": _sales.get_daywise_sales,
 	"daywise-invoices": _sales.get_daywise_invoices,
+	"shift-invoices": _shift_invoices.get_period_invoices,
 	"month-wise-sales": _sales.get_month_wise_sales,
 	"time-wise-sales": _sales.get_time_wise_sales,
 	"service-wise-sales": _sales.get_service_wise_sales,
@@ -166,6 +168,7 @@ _REPORT_DISPATCH = {
 _DEFAULT_TO_TODAY_RANGE = {
 	"daywise-sales",
 	"daywise-invoices",
+	"shift-invoices",
 	"service-wise-sales",
 	"cancelled-invoices",
 	"average-bill-value",
@@ -219,6 +222,7 @@ _REPORTS_CATALOG = [
 	{"slug": "today-sales", "label": "Today's Sales", "description": "Total sales, orders, and average bill for the current business day."},
 	{"slug": "daywise-sales", "label": "Daywise Sales", "description": "Sales totals broken down by day over a date range."},
 	{"slug": "daywise-invoices", "label": "Daywise Invoices", "description": "Individual invoice-level detail for each day in a date range."},
+	{"slug": "shift-invoices", "label": "Shift Invoices", "description": "Invoice list with course, items, employee (waiter employee) and paid amount, per cashier shift or date range."},
 	{"slug": "month-wise-sales", "label": "Month Wise Sales", "description": "Sales totals broken down by month over a trailing window."},
 	{"slug": "time-wise-sales", "label": "Time Wise Sales", "description": "Sales broken down into hourly/bucketed time slots for a single day."},
 	{"slug": "service-wise-sales", "label": "Service Wise Sales", "description": "Sales broken down by service type (e.g. dine-in, takeaway) over a date range."},

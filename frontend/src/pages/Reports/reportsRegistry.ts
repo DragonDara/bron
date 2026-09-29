@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Sun,
   CalendarDays,
+  CalendarClock,
   Receipt,
   BarChart3,
   Clock,
@@ -32,6 +33,7 @@ export const reportsRegistry: ReportEntry[] = [
   { id: 'today-sales', label: "Today's Sales", group: 'Sales Summary', path: 'today-sales', icon: Sun },
   { id: 'daywise-sales', label: 'Daywise Sales', group: 'Sales Summary', path: 'daywise-sales', icon: CalendarDays },
   { id: 'daywise-invoices', label: 'Daywise Invoices', group: 'Sales Summary', path: 'daywise-invoices', icon: Receipt },
+  { id: 'shift-invoices', label: 'Shift Invoices', group: 'Sales Summary', path: 'shift-invoices', icon: CalendarClock },
   { id: 'month-wise-sales', label: 'Month Wise Sales', group: 'Sales Summary', path: 'month-wise-sales', icon: BarChart3 },
   { id: 'time-wise-sales', label: 'Time Wise Sales', group: 'Sales Summary', path: 'time-wise-sales', icon: Clock },
   { id: 'service-wise-sales', label: 'Service Wise Sales', group: 'Sales Summary', path: 'service-wise-sales', icon: PieChart },

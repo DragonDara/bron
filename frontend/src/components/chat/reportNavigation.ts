@@ -33,6 +33,7 @@ const KNOWN_REPORT_SLUGS = new Set([
   'today-sales',
   'daywise-sales',
   'daywise-invoices',
+  'shift-invoices',
   'month-wise-sales',
   'time-wise-sales',
   'service-wise-sales',
