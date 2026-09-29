@@ -254,7 +254,7 @@ export const QuickActions: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold text-muted-foreground mb-1">Price (₹)</label>
+              <label className="block font-semibold text-muted-foreground mb-1">Price (₸)</label>
               <Input
                 type="number"
                 placeholder="280"

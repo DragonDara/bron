@@ -25,7 +25,7 @@
    "fieldname": "commission_base",
    "fieldtype": "Select",
    "label": "Commission Base",
-   "options": "Net Sales\nNet Total\nItem Total\nGrand Total"
+   "options": "Net Sales\nIndividual Price\nNet Total\nItem Total\nGrand Total"
   },
   {
    "default": "1",
@@ -68,7 +68,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-08-31 00:00:00.000000",
+ "modified": "2026-09-28 23:40:00.000000",
  "modified_by": "Administrator",
  "module": "URY",
  "name": "URY Commission Settings",

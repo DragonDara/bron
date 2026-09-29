@@ -19,7 +19,7 @@ import {
   Spinner,
   numericCellClass,
 } from '@ury/ui';
-import { getLoggedUser, getUserRoles } from '@ury/core';
+import { getCurrencySymbol, getLoggedUser, getUserRoles } from '@ury/core';
 import { useBranchContext } from '../../context/BranchContext';
 import { DeskLink } from '../../components/DeskLink';
 import {
@@ -713,7 +713,7 @@ const DepartmentStockContent: React.FC = () => {
       { label: 'Issue Lines', value: authorizations.length },
       { label: 'Fully Issued', value: fullyIssuedCount, tone: 'default' },
       { label: 'Wastage Entries', value: wastageRows.length, tone: wastageRows.length > 0 ? 'danger' : 'default' },
-      { label: 'Wastage Value', value: `Rs. ${formatCurrency(totalWastageValue)}`, tone: 'danger' },
+      { label: 'Wastage Value', value: `${getCurrencySymbol()} ${formatCurrency(totalWastageValue)}`, tone: 'danger' },
       { label: 'Stock Movements', value: movements.length },
     ];
     return items;
@@ -780,7 +780,7 @@ const DepartmentStockContent: React.FC = () => {
       align: 'right',
       render: (row) => (
         <span className={numericCellClass}>
-          {row.valuation_amount !== undefined ? `Rs. ${formatCurrency(row.valuation_amount)}` : '-'}
+          {row.valuation_amount !== undefined ? `${getCurrencySymbol()} ${formatCurrency(row.valuation_amount)}` : '-'}
         </span>
       ),
     },
@@ -1092,10 +1092,10 @@ const DepartmentStockContent: React.FC = () => {
             {selectedWastage.branch !== undefined && <KeyValueRow label="Branch" value={selectedWastage.branch} />}
             {selectedWastage.company !== undefined && <KeyValueRow label="Company" value={selectedWastage.company} />}
             {selectedWastage.valuation_rate !== undefined && (
-              <KeyValueRow label="Valuation rate" value={`Rs. ${formatCurrency(selectedWastage.valuation_rate)}`} />
+              <KeyValueRow label="Valuation rate" value={`${getCurrencySymbol()} ${formatCurrency(selectedWastage.valuation_rate)}`} />
             )}
             {selectedWastage.valuation_amount !== undefined && (
-              <KeyValueRow label="Valuation amount" value={`Rs. ${formatCurrency(selectedWastage.valuation_amount)}`} />
+              <KeyValueRow label="Valuation amount" value={`${getCurrencySymbol()} ${formatCurrency(selectedWastage.valuation_amount)}`} />
             )}
           </>
         )}

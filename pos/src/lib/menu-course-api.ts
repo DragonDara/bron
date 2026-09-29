@@ -14,14 +14,16 @@ export interface MenuCourseResponse {
 export async function getMenuCourses(
   posProfile: string,
   room: string | null,
-  orderType: string | null
+  orderType: string | null,
+  customer: string | null = null
 ): Promise<MenuCourse[]> {
   const response = await call.get<MenuCourseResponse>(
     'ury.ury_pos.api.getMenuCourses',
     {
       pos_profile: posProfile,
       room: room,
-      order_type: orderType
+      order_type: orderType,
+      ...(customer ? { customer } : {}),
     }
   );
   return response.message;

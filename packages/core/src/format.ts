@@ -1,31 +1,41 @@
 import { storage } from './storage';
+import { resolveUryLanguage } from './i18n';
+
+const DEFAULT_CURRENCY_SYMBOL = '₸';
+
+/** Symbol stored from the POS profile's currency; the management app never sets it, so it falls back to tenge. */
+export function getCurrencySymbol(): string {
+  return storage.getItem('currencySymbol') || DEFAULT_CURRENCY_SYMBOL;
+}
+
+/** Locale used for amounts: Russian grouping ("1 250 000,5") unless the UI language is English. */
+export function getAmountLocale(): string {
+  return resolveUryLanguage() === 'ru' ? 'ru-RU' : 'en-US';
+}
 
 export function formatCurrency(amount: number): string {
-  const symbol = storage.getItem('currencySymbol') || '₹';
-  const formattedVal = typeof amount === 'number' && !isNaN(amount) ? amount.toLocaleString('en-IN') : amount;
+  const symbol = getCurrencySymbol();
+  const formattedVal =
+    typeof amount === 'number' && !isNaN(amount)
+      ? amount.toLocaleString(getAmountLocale(), { maximumFractionDigits: 2 })
+      : amount;
   return `${symbol} ${formattedVal}`;
 }
 
 /**
- * Formats a number as compact Indian-style currency for chart axes/labels,
- * e.g. 600000 -> "₹6L", 12500000 -> "₹1.25Cr", 8200 -> "₹8.2k".
+ * Formats a number as compact currency for chart axes/labels,
+ * e.g. 8200 -> "₸8,2 тыс.", 12500000 -> "₸12,5 млн" (English UI: "₸8.2K", "₸12.5M").
  */
 export function formatCompactCurrency(amount: number): string {
-  const symbol = storage.getItem('currencySymbol') || '₹';
+  const symbol = getCurrencySymbol();
   if (typeof amount !== 'number' || isNaN(amount)) return `${symbol} ${amount}`;
 
   const sign = amount < 0 ? '-' : '';
-  const abs = Math.abs(amount);
-
-  const trim = (value: number) => {
-    const rounded = Math.round(value * 100) / 100;
-    return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-  };
-
-  if (abs >= 1_00_00_000) return `${sign}${symbol}${trim(abs / 1_00_00_000)}Cr`;
-  if (abs >= 1_00_000) return `${sign}${symbol}${trim(abs / 1_00_000)}L`;
-  if (abs >= 1_000) return `${sign}${symbol}${trim(abs / 1_000)}k`;
-  return `${sign}${symbol}${trim(abs)}`;
+  const compact = new Intl.NumberFormat(getAmountLocale(), {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(Math.abs(amount));
+  return `${sign}${symbol}${compact}`;
 }
 
 export const formatInvoiceTime = (timestamp: string | null) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { call, formatCurrency } from '@ury/core';
 import { KpiStrip, type KpiItemProps, DataTable, type DataTableColumn, PageHeader } from '@ury/ui';
 import { DollarSign, ChevronUp } from 'lucide-react';
@@ -22,6 +22,7 @@ interface Period {
   period: string;
   branch: string;
   base: number;
+  paid: number;
   rate: number;
   commission: number;
 }
@@ -34,6 +35,7 @@ interface EmployeeCommissionRow {
   attributed_invoices: number;
   weighted_invoices: number;
   attributed_base: number;
+  attributed_paid: number;
   effective_rate: number;
   rate_source: string | null;
   commission_amount: number;
@@ -59,11 +61,66 @@ interface EmployeeCommissionData {
   summary: EmployeeCommissionSummary;
 }
 
+interface InvoiceCommissionRow {
+  invoice: string;
+  posting_date: string;
+  branch: string;
+  base_amount: number;
+  paid_amount: number;
+  weight: number;
+  attributed_base: number;
+  is_return: boolean;
+  period: string;
+  rate: number;
+  commission: number;
+}
+
+interface EmployeeCommissionDetail {
+  invoices: InvoiceCommissionRow[];
+  truncated: boolean;
+}
+
+const periodColumns: DataTableColumn<Period>[] = [
+  { key: 'period', header: 'Period Start' },
+  { key: 'branch', header: 'Branch' },
+  { key: 'paid', header: 'Paid by Customer', render: (r) => formatCurrency(r.paid), align: 'right' },
+  { key: 'base', header: 'Attributed Base', render: (r) => formatCurrency(r.base), align: 'right' },
+  { key: 'rate', header: 'Rate', render: (r) => `${r.rate.toFixed(2)}%`, align: 'right' },
+  { key: 'commission', header: 'Commission', render: (r) => formatCurrency(r.commission), align: 'right' },
+];
+
+const invoiceColumns: DataTableColumn<InvoiceCommissionRow>[] = [
+  {
+    key: 'invoice',
+    header: 'Invoice',
+    render: (r) => (
+      <span className="inline-flex items-center gap-2">
+        <a
+          href={`/app/pos-invoice/${encodeURIComponent(r.invoice)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary hover:underline"
+        >
+          {r.invoice}
+        </a>
+        {r.is_return && <span className="text-xs text-red-700 bg-red-50 px-1.5 py-0.5 rounded">Return</span>}
+      </span>
+    ),
+  },
+  { key: 'posting_date', header: 'Date' },
+  { key: 'paid_amount', header: 'Paid by Customer', render: (r) => formatCurrency(r.paid_amount), align: 'right' },
+  { key: 'base_amount', header: 'Invoice Base', render: (r) => formatCurrency(r.base_amount), align: 'right' },
+  { key: 'weight', header: 'Share', render: (r) => `${Number((r.weight * 100).toFixed(1))}%`, align: 'right' },
+  { key: 'attributed_base', header: 'Attributed Base', render: (r) => formatCurrency(r.attributed_base), align: 'right' },
+  { key: 'rate', header: 'Rate', render: (r) => `${r.rate.toFixed(2)}%`, align: 'right' },
+  { key: 'commission', header: 'Commission', render: (r) => <span className="font-semibold">{formatCurrency(r.commission)}</span>, align: 'right' },
+];
 const columns: DataTableColumn<EmployeeCommissionRow>[] = [
   { key: 'rank', header: '#', align: 'center' },
   { key: 'employee_name', header: 'Employee' },
   { key: 'designation', header: 'Designation', render: (r) => r.designation || '—' },
   { key: 'attributed_invoices', header: 'Invoices', align: 'right' },
+  { key: 'attributed_paid', header: 'Paid by Customer', render: (r) => formatCurrency(r.attributed_paid), align: 'right' },
   { key: 'attributed_base', header: 'Attributed Base', render: (r) => formatCurrency(r.attributed_base), align: 'right' },
   { key: 'effective_rate', header: 'Effective Rate', render: (r) => `${r.effective_rate.toFixed(2)}%`, align: 'right' },
   { key: 'rate_source', header: 'Rate Source', render: (r) => r.rate_source && <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-1 rounded">{r.rate_source}</span> },
@@ -80,11 +137,15 @@ export function EmployeeCommission() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
-  const [detailData, setDetailData] = useState<unknown>(null);
+  const [detailData, setDetailData] = useState<EmployeeCommissionDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const detailRequest = useRef(0);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
+    detailRequest.current += 1;
+    setExpandedEmployee(null);
+    setDetailData(null);
     try {
       setError(null);
       const branch = activeBranchId === 'all' ? undefined : activeBranchId;
@@ -106,9 +167,11 @@ export function EmployeeCommission() {
   }, [fetchData]);
 
   const handleRowClick = async (employee: EmployeeCommissionRow) => {
+    const requestId = ++detailRequest.current;
+    setDetailData(null);
     if (expandedEmployee === employee.employee) {
       setExpandedEmployee(null);
-      setDetailData(null);
+      setDetailLoading(false);
       return;
     }
 
@@ -116,17 +179,19 @@ export function EmployeeCommission() {
     setDetailLoading(true);
     try {
       const branch = activeBranchId === 'all' ? undefined : activeBranchId;
-      const res = await call<{ message: unknown }>('ury.ury.report_api.commission.get_employee_commission_detail', {
+      const res = await call<{ message: EmployeeCommissionDetail }>('ury.ury.report_api.commission.get_employee_commission_detail', {
         employee: employee.employee,
         start_date: toApiDate(range.from),
         end_date: toApiDate(range.to),
         branch,
       });
-      setDetailData(res.message ?? res);
+      if (requestId !== detailRequest.current) return;
+      setDetailData(res.message ?? (res as unknown as EmployeeCommissionDetail));
     } catch (err) {
+      if (requestId !== detailRequest.current) return;
       console.error('Failed to load detail:', err);
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequest.current) setDetailLoading(false);
     }
   };
 
@@ -222,25 +287,23 @@ export function EmployeeCommission() {
         </>
       )}
 
-      {/* Data table with clickable rows */}
-      <div className="space-y-0">
-        <DataTable
-          columns={columns}
-          rows={data?.employees ?? []}
-          isLoading={isLoading}
-          onRowClick={(row) => handleRowClick(row)}
-          rowClassName={(row) => expandedEmployee === row.employee ? 'bg-blue-50' : ''}
-        />
-
-        {/* Expanded detail section */}
-        {expandedEmployee && (
-          <div className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded-md">
+      <DataTable
+        columns={columns}
+        rows={data?.employees ?? []}
+        isLoading={isLoading}
+        onRowClick={(row) => handleRowClick(row)}
+        rowTone={(row) => (expandedEmployee === row.employee ? 'selected' : undefined)}
+        isRowExpanded={(row) => expandedEmployee === row.employee}
+        renderExpanded={(row) => (
+          <div className="border-l-4 border-blue-500 bg-blue-50 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-sm">Period Details</h3>
               <button
                 onClick={() => {
+                  detailRequest.current += 1;
                   setExpandedEmployee(null);
                   setDetailData(null);
+                  setDetailLoading(false);
                 }}
                 className="text-sm text-muted-foreground hover:text-foreground"
               >
@@ -248,43 +311,44 @@ export function EmployeeCommission() {
               </button>
             </div>
 
-            {detailLoading ? (
-              <div className="text-sm text-muted-foreground">Loading details…</div>
-            ) : detailData && typeof detailData === 'object' ? (
-              <div className="space-y-2">
-                {Array.isArray((detailData as any).periods) ? (
-                  (detailData as any).periods.map((period: Period, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-blue-200">
-                      <div>
-                        <span className="font-medium">{period.period}</span>
-                        {period.branch && <span className="text-muted-foreground ml-2">({period.branch})</span>}
-                      </div>
-                      <div className="flex gap-4">
-                        <div>
-                          <span className="text-muted-foreground">Base: </span>
-                          <span className="font-medium">{formatCurrency(period.base)}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Rate: </span>
-                          <span className="font-medium">{period.rate.toFixed(2)}%</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Commission: </span>
-                          <span className="font-medium">{formatCurrency(period.commission)}</span>
-                        </div>
-                      </div>
+            <div className="space-y-4">
+              <section className="space-y-1.5">
+                <h4 className="text-xs font-semibold text-muted-foreground">By Period</h4>
+                <DataTable
+                  columns={periodColumns}
+                  rows={row.periods}
+                  emptyMessage="No period data available"
+                  className="bg-white"
+                />
+              </section>
+
+              {detailLoading ? (
+                <div className="text-sm text-muted-foreground">Loading details…</div>
+              ) : detailData ? (
+                <>
+                  {detailData.truncated && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Only the latest 2000 invoices are listed.
                     </div>
-                  ))
-                ) : (
-                  <div className="text-xs text-muted-foreground">No period data available</div>
-                )}
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">Failed to load details</div>
-            )}
+                  )}
+                  <section className="space-y-1.5">
+                    <h4 className="text-xs font-semibold text-muted-foreground">Invoices</h4>
+                    <DataTable
+                      columns={invoiceColumns}
+                      rows={detailData.invoices}
+                      emptyMessage="No invoices for this employee in the selected range."
+                      className="bg-white"
+                      rowTone={(r) => (r.is_return ? 'danger' : undefined)}
+                    />
+                  </section>
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground">Failed to load details</div>
+              )}
+            </div>
           </div>
         )}
-      </div>
+      />
     </div>
   );
 }

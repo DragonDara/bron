@@ -13,6 +13,9 @@ import { getPaymentModes } from '../lib/payment-api';
 const MAX_QUANTITY = 99;
 const MIN_QUANTITY = 0;
 
+// Only the latest menu request may write menuItems (customer/room/order type can change mid-flight).
+let menuRequestSeq = 0;
+
 // Custom error class for cart operations
 class CartError extends Error {
   constructor(message: string) {
@@ -124,6 +127,8 @@ interface POSState {
   selectedRoom: string | null;
   searchQuery: string;
   selectedCustomer: Customer | null;
+  /** Customer the loaded menu was resolved for; a customer-group price list can select its own menu. */
+  menuCustomer: string | null;
   /** Employee this order is credited to when keyed on their behalf. */
   selectedPerformer: string | null;
   selectedOrderType: OrderType;
@@ -161,6 +166,8 @@ interface POSState {
 
 interface POSStore extends POSState {
   fetchMenuItems: () => Promise<void>;
+  /** Reloads the menu when the selected customer changed and reprices cart lines from it. */
+  syncMenuWithCustomer: () => Promise<void>;
   fetchAggregatorMenu: (aggregator: string) => Promise<void>;
   fetchCategories: () => Promise<void>;
   fetchPaymentModes: () => Promise<void>;
@@ -232,6 +239,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   selectedRoom: null,
   searchQuery: '',
   selectedCustomer: null,
+  menuCustomer: null,
   selectedPerformer: null,
   selectedOrderType: DEFAULT_ORDER_TYPE as OrderType,
   quickFilter: "all",
@@ -343,12 +351,15 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   fetchMenuItems: async () => {
-    const { posProfile, selectedRoom, selectedOrderType } = get();
+    const { posProfile, selectedRoom, selectedOrderType, selectedCustomer } = get();
     if (!posProfile?.restaurant) return;
 
+    const customer = selectedCustomer?.id ?? null;
+    const requestId = ++menuRequestSeq;
     try {
       set({ menuLoading: true, error: null });
-      const items = await getRestaurantMenu(posProfile.name, selectedRoom, selectedOrderType);
+      const items = await getRestaurantMenu(posProfile.name, selectedRoom, selectedOrderType, customer);
+      if (requestId !== menuRequestSeq) return;
       
       const menuItems: MenuItem[] = items.map((item: any) => ({
         id: item.item,
@@ -365,15 +376,32 @@ export const usePOSStore = create<POSStore>((set, get) => ({
         tax_rate: 0,
       }));
 
-      set({ menuItems });
+      set({ menuItems, menuCustomer: customer });
       // fetchCategories surfaces its own error; it must not mask the menu itself loading fine.
       await get().fetchCategories().catch(() => {});
     } catch (error) {
+      if (requestId !== menuRequestSeq) return;
       set({ error: 'Failed to load menu items' });
       console.error('Error loading menu items:', error);
     } finally {
-      set({ menuLoading: false });
+      if (requestId === menuRequestSeq) set({ menuLoading: false });
     }
+  },
+
+  syncMenuWithCustomer: async () => {
+    const { selectedCustomer, menuCustomer, selectedOrderType } = get();
+    const customer = selectedCustomer?.id ?? null;
+    if (selectedOrderType === 'Aggregators' || customer === menuCustomer) return;
+
+    await get().fetchMenuItems();
+    if (get().menuCustomer !== customer) return;
+
+    const menuPrices = new Map(get().menuItems.map((item) => [item.id, item.price]));
+    set({
+      activeOrders: get().activeOrders.map((line) =>
+        menuPrices.has(line.id) ? { ...line, price: menuPrices.get(line.id)! } : line
+      ),
+    });
   },
 
   fetchAggregatorMenu: async (aggregator: string) => {
@@ -398,10 +426,10 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   fetchCategories: async () => {
-    const { posProfile, selectedRoom, selectedOrderType } = get();
+    const { posProfile, selectedRoom, selectedOrderType, menuCustomer } = get();
     if (!posProfile?.name) return;
 
-    const cacheKey = `menuCategories:${posProfile.name}:${selectedRoom ?? ''}:${selectedOrderType ?? ''}`;
+    const cacheKey = `menuCategories:${posProfile.name}:${selectedRoom ?? ''}:${selectedOrderType ?? ''}:${menuCustomer ?? ''}`;
 
     try {
       const cached = sessionStorage.getItem(cacheKey);
@@ -414,7 +442,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
         }
       }
 
-      const courses = await getMenuCourses(posProfile.name, selectedRoom, selectedOrderType);
+      const courses = await getMenuCourses(posProfile.name, selectedRoom, selectedOrderType, menuCustomer);
       sessionStorage.setItem(cacheKey, JSON.stringify(courses));
       set({ categories: courses });
     } catch (error) {
@@ -526,7 +554,10 @@ export const usePOSStore = create<POSStore>((set, get) => ({
 
   setSelectedCategory: (category) => set({ selectedCategory: category }),
   setSearchQuery: (query) => set({ searchQuery: query }),
-  setSelectedCustomer: (customer) => set({ selectedCustomer: customer }),
+  setSelectedCustomer: (customer) => {
+    set({ selectedCustomer: customer });
+    void get().syncMenuWithCustomer();
+  },
 
   setSelectedPerformer: (employee) => set({ selectedPerformer: employee }),
   setSelectedTable: (table: string | null, room: string | null, doNotLoadOrder: boolean = false) => {
@@ -748,6 +779,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     } finally {
       set({ orderLoading: false });
     }
+    void get().syncMenuWithCustomer();
   },
 
   clearTableOrder: () => {
@@ -762,6 +794,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       lastModifiedTime: null,
       orderComment: '',
     });
+    void get().syncMenuWithCustomer();
   },
 
   setOrderForUpdate: (orderId: string | null) => {

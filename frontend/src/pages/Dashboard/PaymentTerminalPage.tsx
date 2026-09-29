@@ -1,5 +1,6 @@
 import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useState } from 'react';
+import { getCurrencySymbol } from '@ury/core';
 import { Page, Section, Panel, Badge, Spinner, DataTable, Input, Select, SelectItem, Button, type DataTableColumn } from '@ury/ui';
 import {
   paymentTerminalService,
@@ -17,10 +18,10 @@ const formatDateTime = (value?: string) => {
 
 const formatCurrency = (value?: number) => {
   if (value === undefined) return '';
-  return new Intl.NumberFormat(getManagementLocale('en-IN'), {
-    style: 'currency',
-    currency: 'INR',
-  }).format(value);
+  return `${getCurrencySymbol()} ${value.toLocaleString(getManagementLocale(), {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
 const getStatusBadgeVariant = (status: string) => {

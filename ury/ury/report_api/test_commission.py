@@ -1,5 +1,8 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt, getdate
 
 from ury.ury.report_api import commission
 
@@ -224,11 +227,138 @@ class TestCommissionBaseExpressions(FrappeTestCase):
 	def test_grand_total_expression(self):
 		self.assertEqual(self.FIXTURE["grand_total"], 900.0)
 
-	def test_base_expr_map_has_all_four_keys(self):
+	def test_base_expr_map_has_all_keys(self):
 		self.assertEqual(
 			set(commission._BASE_EXPR.keys()),
-			{"Net Sales", "Net Total", "Item Total", "Grand Total"},
+			{"Net Sales", "Individual Price", "Net Total", "Item Total", "Grand Total"},
 		)
+
+
+class TestAllocateInvoiceCommission(FrappeTestCase):
+	"""Per-invoice commission in get_employee_commission_detail must add up
+	to the period (bucket) commission the summary report shows."""
+
+	def _rows(self, *bases, posting_date="2026-09-29", branch="My Company"):
+		return [
+			{"invoice": f"INV-{i}", "posting_date": posting_date, "branch": branch, "attributed_base": base}
+			for i, base in enumerate(bases, start=1)
+		]
+
+	def _bucket(self, base, commission, rate):
+		return {("EMP-1", "My Company", "2026-09-01"): {"base": base, "commission": commission, "rate": rate}}
+
+	def test_flat_rate_is_base_times_rate(self):
+		rows = self._rows(2000, 1000)
+		commission._allocate_invoice_commission(rows, self._bucket(3000, 1200, 40), "EMP-1", "Monthly")
+		self.assertEqual([r["commission"] for r in rows], [800, 400])
+		self.assertEqual([r["rate"] for r in rows], [40, 40])
+		self.assertEqual(rows[0]["period"], "2026-09-01")
+
+	def test_tiered_commission_split_by_base(self):
+		rows = self._rows(600, 400)
+		commission._allocate_invoice_commission(rows, self._bucket(1000, 75, 7.5), "EMP-1", "Monthly")
+		self.assertEqual([r["commission"] for r in rows], [45, 30])
+
+	def test_period_that_earned_nothing_gives_zero_per_invoice(self):
+		rows = self._rows(500, -1000)
+		commission._allocate_invoice_commission(rows, self._bucket(-500, 0, 40), "EMP-1", "Monthly")
+		self.assertEqual([r["commission"] for r in rows], [0, 0])
+
+	def test_invoice_outside_any_bucket_gets_zero(self):
+		rows = self._rows(1000, branch="Other Branch")
+		commission._allocate_invoice_commission(rows, self._bucket(1000, 400, 40), "EMP-1", "Monthly")
+		self.assertEqual((rows[0]["rate"], rows[0]["commission"]), (0.0, 0.0))
+
+	def test_detail_endpoint_invoice_commissions_sum_to_total(self):
+		settings = {
+			"enabled": True, "commission_base": "Net Sales", "include_returns": True,
+			"attribution_mode": "Opener", "default_rate": 40, "tier_period": "Monthly", "rules": [],
+		}
+		invoices = [
+			frappe._dict(invoice=name, posting_date=getdate(day), branch="My Company", opener="EMP-1",
+						 closer=None, is_return=is_return, return_against=None, base_amount=base)
+			for name, day, base, is_return in [
+				("INV-1", "2026-09-27", 1714.29, 0),
+				("INV-2", "2026-09-29", 3428.57, 0),
+				("INV-3", "2026-09-29", -1714.29, 1),
+			]
+		]
+		frappe.set_user("Administrator")
+		with patch.object(commission, "_load_settings", return_value=settings), \
+			 patch.object(commission, "_fetch_invoices", return_value=invoices):
+			result = commission.get_employee_commission_detail("EMP-1", "2026-09-01", "2026-09-30")
+
+		by_invoice = {r["invoice"]: r["commission"] for r in result["invoices"]}
+		self.assertEqual(by_invoice, {"INV-1": 685.72, "INV-2": 1371.43, "INV-3": -685.72})
+		self.assertAlmostEqual(sum(by_invoice.values()), result["summary"]["total_commission"], places=1)
+
+	def test_paid_amount_is_full_per_invoice_and_split_per_employee(self):
+		settings = {
+			"enabled": True, "commission_base": "Individual Price", "include_returns": True,
+			"attribution_mode": "Split Evenly", "default_rate": 40, "tier_period": "Monthly", "rules": [],
+		}
+		invoices = [
+			frappe._dict(invoice=name, posting_date=getdate("2026-09-29"), branch="My Company", opener="EMP-1",
+						 closer=closer, is_return=0, return_against=None, base_amount=base, paid_amount=paid)
+			for name, closer, base, paid in [
+				("INV-1", "EMP-2", 1800, 3600),
+				("INV-2", None, 1800, 1800),
+			]
+		]
+		frappe.set_user("Administrator")
+		with patch.object(commission, "_load_settings", return_value=settings), \
+			 patch.object(commission, "_fetch_invoices", return_value=invoices):
+			summary = commission.get_employee_commission("2026-09-01", "2026-09-30")
+			detail = commission.get_employee_commission_detail("EMP-1", "2026-09-01", "2026-09-30")
+
+		by_employee = {e["employee"]: e for e in summary["employees"]}
+		self.assertEqual(by_employee["EMP-1"]["attributed_paid"], 3600)
+		self.assertEqual(by_employee["EMP-2"]["attributed_paid"], 1800)
+		self.assertEqual(by_employee["EMP-1"]["periods"][0]["paid"], 3600)
+		self.assertEqual({r["invoice"]: r["paid_amount"] for r in detail["invoices"]}, {"INV-1": 3600, "INV-2": 1800})
+
+
+class TestIndividualPriceBase(FrappeTestCase):
+	"""Runs the real "Individual Price" SQL against a one-row derived table.
+	The per-invoice item subquery is swapped for a plain column so the CASE
+	arithmetic is exercised without POS Invoice Item rows. Example burger:
+	1800 walk-in, 3600 on the company price list, 5% tax included in prices."""
+
+	def _base(self, total, grand_total, commission_item_total):
+		expr = commission._BASE_EXPR["Individual Price"]
+		self.assertEqual(expr.count(commission._COMMISSION_ITEM_TOTAL_EXPR), 2)
+		expr = expr.replace(commission._COMMISSION_ITEM_TOTAL_EXPR, "b.`commission_item_total`")
+		return flt(frappe.db.sql(
+			f"""
+			SELECT ROUND({expr}, 2) FROM (
+				SELECT %(total)s AS `total`, %(grand_total)s AS `grand_total`,
+				       %(commission_item_total)s AS `commission_item_total`
+			) b
+			""",
+			{"total": total, "grand_total": grand_total, "commission_item_total": commission_item_total},
+		)[0][0])
+
+	def test_walk_in_customer_equals_grand_total(self):
+		self.assertEqual(self._base(total=1800, grand_total=1800, commission_item_total=1800), 1800)
+
+	def test_company_price_counted_at_walk_in_price(self):
+		self.assertEqual(self._base(total=3600, grand_total=3600, commission_item_total=1800), 1800)
+
+	def test_exclusive_tax_is_included(self):
+		# Prices exclude 5% tax: walk-in 2000 + tax = 2100.
+		self.assertEqual(self._base(total=3000, grand_total=3150, commission_item_total=2000), 2100)
+
+	def test_discount_scales_walk_in_total(self):
+		# Company pays 3600 - 10% = 3240; the waiter's base is 1800 - 10% = 1620.
+		self.assertEqual(self._base(total=3600, grand_total=3240, commission_item_total=1800), 1620)
+		self.assertEqual(self._base(total=1800, grand_total=1620, commission_item_total=1800), 1620)
+
+	def test_invoice_without_walk_in_rates_falls_back_to_grand_total(self):
+		self.assertEqual(self._base(total=3600, grand_total=3240, commission_item_total=None), 3240)
+		self.assertEqual(self._base(total=3600, grand_total=3600, commission_item_total=0), 3600)
+
+	def test_return_is_negative_walk_in_total(self):
+		self.assertEqual(self._base(total=-3600, grand_total=-3600, commission_item_total=-1800), -1800)
 
 
 class TestAttributionWeights(FrappeTestCase):

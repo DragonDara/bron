@@ -36,6 +36,9 @@ export interface DataTableProps<T> {
    * Purely additive — omitting this prop leaves existing rows unaffected.
    */
   rowTone?: (row: T) => DataTableRowTone;
+  /** Rows for which this returns true get `renderExpanded(row)` in a full-width row right below them. */
+  isRowExpanded?: (row: T) => boolean;
+  renderExpanded?: (row: T) => React.ReactNode;
 }
 
 const rowToneClasses: Record<"danger" | "warning" | "selected", string> = {
@@ -54,6 +57,8 @@ export function DataTable<T>({
   className,
   onRowClick,
   rowTone,
+  isRowExpanded,
+  renderExpanded,
 }: DataTableProps<T>) {
   return (
     <div className={cn("relative w-full overflow-auto rounded-lg border", className)}>
@@ -89,32 +94,41 @@ export function DataTable<T>({
           ) : (
             rows.map((row, rowIndex) => {
               const tone = rowTone?.(row);
+              const expanded = renderExpanded && isRowExpanded?.(row);
               return (
-                <tr
-                  key={rowIndex}
-                  className={cn(
-                    "border-b border-hair transition-colors last:border-b-0",
-                    tone === "danger" || tone === "warning" || tone === "selected"
-                      ? rowToneClasses[tone as "danger" | "warning" | "selected"]
-                      : "hover:bg-muted/50",
-                    onRowClick && "cursor-pointer"
+                <React.Fragment key={rowIndex}>
+                  <tr
+                    className={cn(
+                      "border-b border-hair transition-colors last:border-b-0",
+                      tone === "danger" || tone === "warning" || tone === "selected"
+                        ? rowToneClasses[tone as "danger" | "warning" | "selected"]
+                        : "hover:bg-muted/50",
+                      onRowClick && "cursor-pointer"
+                    )}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  >
+                    {columns.map((column) => (
+                      <td
+                        key={column.key}
+                        className={cn(
+                          "px-[14px] py-[8px] align-middle text-[12.5px]",
+                          column.align === "right" ? "text-right tabular-nums" : "text-left"
+                        )}
+                      >
+                        {column.render
+                          ? column.render(row)
+                          : String((row as Record<string, unknown>)[column.key] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                  {expanded && (
+                    <tr className="border-b border-hair last:border-b-0">
+                      <td colSpan={columns.length} className="p-0">
+                        {renderExpanded(row)}
+                      </td>
+                    </tr>
                   )}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                >
-                  {columns.map((column) => (
-                    <td
-                      key={column.key}
-                      className={cn(
-                        "px-[14px] py-[8px] align-middle text-[12.5px]",
-                        column.align === "right" ? "text-right tabular-nums" : "text-left"
-                      )}
-                    >
-                      {column.render
-                        ? column.render(row)
-                        : String((row as Record<string, unknown>)[column.key] ?? "")}
-                    </td>
-                  ))}
-                </tr>
+                </React.Fragment>
               );
             })
           )}

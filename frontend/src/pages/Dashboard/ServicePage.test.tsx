@@ -53,6 +53,7 @@ vi.mock('../../services/departmentProfitability', () => ({
 }));
 
 vi.mock('@ury/core', () => ({
+  getCurrencySymbol: () => '₸',
   call: vi.fn().mockResolvedValue({
     message: { company: 'Test Company' },
   }),
