@@ -972,6 +972,9 @@ def getPosProfileFull(pos_profile):
             row.as_dict() for row in profile.get("custom_roles_allowed_for_credit") or []
         ],
         "custom_credit_mode_of_payment": profile.get("custom_credit_mode_of_payment"),
+        "custom_enable_service_charge": profile.get("custom_enable_service_charge"),
+        "custom_service_charge_percentage": profile.get("custom_service_charge_percentage"),
+        "custom_service_charge_order_types": profile.get("custom_service_charge_order_types"),
     }
 
 
