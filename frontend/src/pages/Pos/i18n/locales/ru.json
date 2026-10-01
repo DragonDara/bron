@@ -79,7 +79,7 @@
     "success": "Оплата прошла успешно",
     "staff_policy_discount": "Скидка сотрудника: {{name}}",
     "policy_limit_remaining": "Остаток лимита: {{amount}}",
-    "service_charge": "Сервисный сбор {{percentage}}%",
+    "service_charge": "Обслуживание официанта {{percentage}}%",
     "taxes": "Налоги",
     "policy_reason_no_applicable_policy": "Для этого чека нет подходящей скидки сотрудника.",
     "policy_reason_no_eligible_items": "В чеке нет товаров, на которые распространяется скидка сотрудника.",

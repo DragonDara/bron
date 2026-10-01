@@ -77,7 +77,7 @@
   "payment": {
     "staff_policy_discount": "Қызметкер жеңілдігі: {{name}}",
     "policy_limit_remaining": "Қалған лимит: {{amount}}",
-    "service_charge": "Қызмет көрсету ақысы {{percentage}}%",
+    "service_charge": "Даяшы қызметі {{percentage}}%",
     "taxes": "Салықтар",
     "policy_reason_no_applicable_policy": "Бұл чекке қызметкер жеңілдігі қолданылмайды.",
     "policy_reason_no_eligible_items": "Чекте жеңілдікке жарамды тауар жоқ.",

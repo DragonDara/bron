@@ -18,6 +18,15 @@ def validate(doc, method):
     set_commission_attribution(doc, method)
     if doc.get("pos_profile") and doc.get("company") and doc.get("branch"):
         prepare_invoice_billing(doc)
+        previous = doc.get_doc_before_save()
+        if (
+            previous
+            and not doc.docstatus
+            and previous.get("invoice_printed")
+            and flt(previous.get("custom_service_charge_amount")) != flt(doc.get("custom_service_charge_amount"))
+        ):
+            # A guest who saw an old printed amount must receive the revised bill.
+            doc.invoice_printed = 0
 
 
 def before_submit(doc, method):

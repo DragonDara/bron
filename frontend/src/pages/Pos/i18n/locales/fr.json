@@ -74,7 +74,7 @@
     "success": "Paiement effectué",
     "staff_policy_discount": "Remise du personnel : {{name}}",
     "policy_limit_remaining": "Plafond restant : {{amount}}",
-    "service_charge": "Frais de service {{percentage}}%",
+    "service_charge": "Service du serveur {{percentage}}%",
     "taxes": "Taxes",
     "policy_reason_no_applicable_policy": "Aucune remise du personnel ne s’applique à cette facture.",
     "policy_reason_no_eligible_items": "Aucun article ne donne droit à une remise du personnel.",

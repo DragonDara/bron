@@ -79,7 +79,7 @@
     "success": "تم الدفع بنجاح",
     "staff_policy_discount": "خصم الموظف: {{name}}",
     "policy_limit_remaining": "الحد المتبقي: {{amount}}",
-    "service_charge": "رسوم الخدمة {{percentage}}%",
+    "service_charge": "خدمة النادل {{percentage}}%",
     "taxes": "الضرائب",
     "policy_reason_no_applicable_policy": "لا تنطبق سياسة خصم الموظفين على هذه الفاتورة.",
     "policy_reason_no_eligible_items": "لا توجد أصناف مؤهلة لخصم الموظفين.",

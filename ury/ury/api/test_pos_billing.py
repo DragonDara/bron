@@ -38,6 +38,7 @@ def invoice(order_type="Dine In", manual=0):
     return Invoice(
         name="TEST-POS-1", company="Test Co", branch="Test Branch", pos_profile="Test Profile",
         order_type=order_type, cashier="cashier@test.local", customer="Walk In",
+        custom_waiter_employee="EMP-WAITER",
         additional_discount_percentage=manual, discount_amount=0,
         staff_discount_policy=None, custom_staff_discount_amount=0,
         custom_service_charge_amount=0,
@@ -51,7 +52,7 @@ class TestServiceCharge(FrappeTestCase):
         return frappe._dict(
             company="Test Co", branch="Test Branch", custom_enable_service_charge=enabled,
             custom_service_charge_order_types="Dine In", custom_service_charge_percentage=10,
-            custom_service_charge_income_account="Service Income - TC", cost_center="Main - TC",
+            custom_service_charge_payable_account="Waiter Payable - TC", cost_center="Main - TC",
         )
 
     def test_disabled_profile_keeps_total_unchanged(self):
@@ -64,8 +65,9 @@ class TestServiceCharge(FrappeTestCase):
 
     def test_dine_in_charge_is_after_manual_discount_and_idempotent(self):
         doc = invoice(manual=20)
-        account = frappe._dict(company="Test Co", root_type="Income", is_group=0)
-        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=self.profile()), patch(f"{MODULE}.frappe.db.get_value", return_value=account), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        employee = frappe._dict(status="Active", branch="Test Branch")
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=self.profile()), patch(f"{MODULE}.frappe.db.get_value", side_effect=lambda doctype, *args, **kwargs: account if doctype == "Account" else employee), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
             first = prepare_invoice_billing(doc)
             second = prepare_invoice_billing(doc)
         self.assertEqual(first["service_charge"], 8)
@@ -73,6 +75,15 @@ class TestServiceCharge(FrappeTestCase):
         self.assertEqual(doc.grand_total, 88)
         self.assertEqual(len(doc["taxes"]), 1)
         self.assertEqual(doc["taxes"][0].custom_is_service_charge, 1)
+        self.assertEqual(doc["taxes"][0].account_head, "Waiter Payable - TC")
+
+    def test_charge_requires_waiter_in_branch(self):
+        doc = invoice(manual=20)
+        doc.custom_waiter_employee = None
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=self.profile()), patch(f"{MODULE}.frappe.db.get_value", return_value=account), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
+            with self.assertRaisesRegex(frappe.ValidationError, "Assign an active waiter"):
+                prepare_invoice_billing(doc)
 
     def test_takeaway_has_no_service_charge(self):
         doc = invoice(order_type="Take Away")
@@ -166,7 +177,7 @@ class TestERPNextCalculator(FrappeTestCase):
         for format_name in ("URY Short Goods Receipt", "Merged POS Invoice Format"):
             template = frappe.get_doc("Print Format", format_name).html
             rendered = frappe.render_template(template, {"doc": doc})
-            self.assertIn("Service Charge", rendered)
+            self.assertIn("Waiter Service", rendered)
             self.assertIn("TEST-POLICY", rendered)
 
     def test_full_policy_discount_survives_native_recalculation(self):

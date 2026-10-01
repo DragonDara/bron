@@ -545,10 +545,20 @@ def get_custom_fields():
 				"fieldname": "custom_service_charge_income_account",
 				"fieldtype": "Link",
 				"options": "Account",
-				"label": "Service Charge Income Account",
+				"label": "Legacy Service Charge Income Account",
+				"description": "Legacy setting. Use the waiter payable account for new service charges.",
+				"hidden": 1,
 				"depends_on": "custom_enable_service_charge",
 				"insert_after": "custom_service_charge_order_types",
-			}
+			},
+			{
+				"fieldname": "custom_service_charge_payable_account",
+				"fieldtype": "Link",
+				"options": "Account",
+				"label": "Waiter Service Payable Account",
+				"depends_on": "custom_enable_service_charge",
+				"insert_after": "custom_service_charge_income_account",
+			},
 		],
   
 		"POS Opening Entry": [

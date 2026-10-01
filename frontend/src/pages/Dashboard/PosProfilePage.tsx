@@ -38,6 +38,7 @@ interface PosProfileRecord {
   custom_service_charge_percentage?: number;
   custom_service_charge_order_types?: string;
   custom_service_charge_income_account?: string;
+  custom_service_charge_payable_account?: string;
   custom_enable_multiple_cashier?: number;
   custom_enable_kot_reprint?: number;
   custom_daily_pos_close?: number;
@@ -84,24 +85,24 @@ export const PosProfilePage: React.FC = () => {
   });
   const [options, setOptions] = useState<any>({ companies: [], warehouses: [], users: [], payments: [] });
   const [modesWithoutAccounts, setModesWithoutAccounts] = useState<Set<string>>(new Set());
-  const [serviceIncomeAccounts, setServiceIncomeAccounts] = useState<string[]>([]);
+  const [servicePayableAccounts, setServicePayableAccounts] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
     if (!profileForm.company) {
-      setServiceIncomeAccounts([]);
+      setServicePayableAccounts([]);
       return;
     }
     call<{ message: Array<{ name: string }> }>('frappe.client.get_list', {
       doctype: 'Account',
-      filters: [['company', '=', profileForm.company], ['root_type', '=', 'Income'], ['is_group', '=', 0]],
+      filters: [['company', '=', profileForm.company], ['root_type', '=', 'Liability'], ['is_group', '=', 0]],
       fields: ['name'],
       limit_page_length: 500,
     }).then((result) => {
       const accounts = Array.isArray(result) ? result as Array<{ name: string }> : result.message || [];
-      if (active) setServiceIncomeAccounts(accounts.map((account) => account.name));
+      if (active) setServicePayableAccounts(accounts.map((account) => account.name));
     }).catch(() => {
-      if (active) setServiceIncomeAccounts([]);
+      if (active) setServicePayableAccounts([]);
     });
     return () => { active = false; };
   }, [profileForm.company]);
@@ -313,6 +314,7 @@ export const PosProfilePage: React.FC = () => {
         custom_service_charge_percentage: profile.custom_service_charge_percentage || '',
         custom_service_charge_order_types: profile.custom_service_charge_order_types || 'Dine In',
         custom_service_charge_income_account: profile.custom_service_charge_income_account || '',
+        custom_service_charge_payable_account: profile.custom_service_charge_payable_account || '',
         custom_enable_kot_reprint: profile.custom_enable_kot_reprint || 0,
         custom_enable_multiple_cashier: profile.custom_enable_multiple_cashier || 0,
         custom_daily_pos_close: profile.custom_daily_pos_close || 0,
@@ -396,6 +398,7 @@ export const PosProfilePage: React.FC = () => {
         custom_service_charge_percentage: Number(form.custom_service_charge_percentage) || 0,
         custom_service_charge_order_types: 'Dine In',
         custom_service_charge_income_account: form.custom_service_charge_income_account || '',
+        custom_service_charge_payable_account: form.custom_service_charge_payable_account || '',
         custom_enable_kot_reprint: form.custom_enable_kot_reprint ? 1 : 0,
         custom_enable_multiple_cashier: form.custom_enable_multiple_cashier ? 1 : 0,
         custom_daily_pos_close: form.custom_daily_pos_close ? 1 : 0,
@@ -428,8 +431,8 @@ export const PosProfilePage: React.FC = () => {
     }
     if (profileForm.custom_enable_service_charge &&
         (!(Number(profileForm.custom_service_charge_percentage) > 0 && Number(profileForm.custom_service_charge_percentage) <= 100)
-          || !profileForm.custom_service_charge_income_account)) {
-      showToast.error('Set a service charge percentage (1–100) and an income account');
+          || !profileForm.custom_service_charge_payable_account)) {
+      showToast.error('Set a waiter service percentage (1–100) and a payable account');
       return;
     }
 
@@ -505,6 +508,7 @@ export const PosProfilePage: React.FC = () => {
           custom_service_charge_percentage: profileForm.custom_service_charge_percentage,
           custom_service_charge_order_types: 'Dine In',
           custom_service_charge_income_account: profileForm.custom_service_charge_income_account,
+          custom_service_charge_payable_account: profileForm.custom_service_charge_payable_account,
           custom_enable_kot_reprint: profileForm.custom_enable_kot_reprint,
           custom_enable_multiple_cashier: profileForm.custom_enable_multiple_cashier,
           custom_daily_pos_close: profileForm.custom_daily_pos_close,
@@ -752,7 +756,7 @@ export const PosProfilePage: React.FC = () => {
                 </div>
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Service Charge
+                    Waiter Service Charge
                   </h4>
                   <div className="flex items-center gap-2 mb-4">
                     <Switch
@@ -778,22 +782,22 @@ export const PosProfilePage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Income Account</label>
+                      <label className="block font-semibold text-foreground mb-1.5">Waiter Payable Account</label>
                       <SearchableSelect
-                        id="custom_service_charge_income_account"
+                        id="custom_service_charge_payable_account"
                         disabled={!isEditMode || !profileForm.custom_enable_service_charge}
-                        value={profileForm.custom_service_charge_income_account || ''}
-                        onChange={(_, val) => setProfileForm(p => ({ ...p, custom_service_charge_income_account: val }))}
+                        value={profileForm.custom_service_charge_payable_account || ''}
+                        onChange={(_, val) => setProfileForm(p => ({ ...p, custom_service_charge_payable_account: val }))}
                         options={[
-                          { value: '', label: 'Select Income Account' },
-                          ...serviceIncomeAccounts.map((name) => ({ value: name, label: name })),
+                          { value: '', label: 'Select Payable Account' },
+                          ...servicePayableAccounts.map((name) => ({ value: name, label: name })),
                         ]}
-                        placeholder="Select Income Account"
+                        placeholder="Select Payable Account"
                       />
                     </div>
                   </div>
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    Calculated after discounts and before taxes. The charge is tax exempt and excluded from employee commission.
+                    Added to Dine In bills after discounts and before taxes. The amount is owed to the credited waiter and excluded from ordinary commission.
                   </p>
                 </div>
               </div>

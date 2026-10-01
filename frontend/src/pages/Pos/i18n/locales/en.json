@@ -74,7 +74,7 @@
     "success": "Payment successful",
     "staff_policy_discount": "Staff discount: {{name}}",
     "policy_limit_remaining": "Policy limit remaining: {{amount}}",
-    "service_charge": "Service charge {{percentage}}%",
+    "service_charge": "Waiter service {{percentage}}%",
     "taxes": "Taxes",
     "policy_reason_no_applicable_policy": "No staff discount policy applies to this bill.",
     "policy_reason_no_eligible_items": "No items on this bill qualify for a staff discount.",

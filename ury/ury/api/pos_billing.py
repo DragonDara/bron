@@ -164,12 +164,17 @@ def _service_charge(invoice, profile):
     percentage = flt(profile.get("custom_service_charge_percentage"))
     if percentage <= 0 or percentage > 100:
         frappe.throw(_("Set a service charge percentage between 0 and 100 in POS Profile."))
-    account = profile.get("custom_service_charge_income_account")
+    account = profile.get("custom_service_charge_payable_account")
     if not account:
-        frappe.throw(_("Set a Service Charge Income Account in POS Profile."))
+        frappe.throw(_("Set a Waiter Service Payable Account in POS Profile."))
     account_info = frappe.db.get_value("Account", account, ["company", "root_type", "is_group"], as_dict=True)
-    if not account_info or account_info.company != invoice.company or account_info.root_type != "Income" or account_info.is_group:
-        frappe.throw(_("The service charge account must be an income ledger in the invoice company."))
+    if not account_info or account_info.company != invoice.company or account_info.root_type != "Liability" or account_info.is_group:
+        frappe.throw(_("The waiter service account must be a liability ledger in the invoice company."))
+
+    employee = invoice.get("custom_waiter_employee")
+    employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
+    if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
+        frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
 
     # The first calculation applies any native manual invoice discount and tax.
     # The charge is based on the resulting pre-tax net total; appended last as
@@ -180,7 +185,7 @@ def _service_charge(invoice, profile):
         invoice.append("taxes", {
             "charge_type": "Actual",
             "account_head": account,
-            "description": _("Service Charge {0}%").format(percentage),
+            "description": _("Waiter Service {0}%").format(percentage),
             "tax_amount": amount,
             "cost_center": profile.get("cost_center"),
             "custom_is_service_charge": 1,
