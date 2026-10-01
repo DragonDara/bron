@@ -2,7 +2,8 @@ import frappe
 from datetime import datetime
 from frappe.utils import now_datetime, get_time, now, flt, getdate, get_first_day, get_last_day, get_datetime
 from ury.ury.doctype.ury_order.ury_order import release_merge_cluster_tables
-from ury.ury.api.pos_billing import prepare_invoice_billing
+from ury.ury.doctype.staff_discount_policy.staff_discount_policy import get_applicable_policy
+from ury.ury.api.ury_customer_pricing import get_customer_price_menu
 
 
 def before_insert(doc, method):
@@ -407,6 +408,12 @@ def validate_price_list(doc, method):
             doc.selling_price_list = price_list
             
         else:
+            # sync_order priced the lines from the customer's own price list; keep the header on it.
+            _customer_menu, customer_price_list = get_customer_price_menu(doc.customer, doc.branch)
+            if customer_price_list:
+                doc.selling_price_list = customer_price_list
+                return
+
             menu_name = frappe.db.get_value("URY Restaurant", doc.restaurant, "active_menu") 
 
             doc.selling_price_list = frappe.db.get_value(

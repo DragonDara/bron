@@ -57,6 +57,14 @@ class TestURYOrder(FrappeTestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        # These tests stub frappe.db.get_value with blanket return values that
+        # the customer price-list lookup cannot interpret; price as walk-in.
+        pricing_patcher = patch(
+            "ury.ury.doctype.ury_order.ury_order.get_customer_price_menu",
+            return_value=(None, None),
+        )
+        pricing_patcher.start()
+        self.addCleanup(pricing_patcher.stop)
 
     @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
@@ -908,9 +916,44 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
         self.assertEqual(row["rate"], 150)
         self.assertEqual(row["price_list_rate"], 150)
         self.assertEqual(row["base_price_list_rate"], 150)
+        self.assertEqual(row["custom_commission_base_rate"], 150)
         self.assertEqual(row["custom_course"], "Starters")
         self.assertEqual(row["cost_center"], "Cost Center A")
         self.assertEqual(row["reservation_line_key"], "ref:Biryani:POS-1")
+
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_list")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    def test_commission_base_rate_uses_commission_price_list(self, mock_get_value, mock_get_list):
+        mock_get_value.return_value = None
+        prices = {"Company Menu": 3000, "Default Menu": 2000}
+        mock_get_list.side_effect = lambda doctype, filters, fields: [
+            frappe._dict(price_list_rate=prices[filters["price_list"]])
+        ]
+
+        row = price_items_for_invoice(
+            [{"item": "Burger", "item_name": "Burger", "qty": 1}],
+            "Company Menu", "Test Profile", "Branch A", "Company Menu",
+            commission_price_list="Default Menu",
+        )[0]
+
+        self.assertEqual(row["rate"], 3000)
+        self.assertEqual(row["custom_commission_base_rate"], 2000)
+
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_list")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
+    def test_commission_base_rate_falls_back_to_charged_rate(self, mock_get_value, mock_get_list):
+        mock_get_value.return_value = None
+        mock_get_list.side_effect = lambda doctype, filters, fields: (
+            [frappe._dict(price_list_rate=3000)] if filters["price_list"] == "Company Menu" else []
+        )
+
+        row = price_items_for_invoice(
+            [{"item": "Burger", "item_name": "Burger", "qty": 1}],
+            "Company Menu", "Test Profile", "Branch A", "Company Menu",
+            commission_price_list="Default Menu",
+        )[0]
+
+        self.assertEqual(row["custom_commission_base_rate"], 3000)
 
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_list")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.get_value")
@@ -972,7 +1015,7 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
         # Biryani is disabled". Restaurant/menu-name lookups just need a
         # truthy value; the disabled check specifically needs a falsy one.
         mock_get_value.side_effect = lambda doctype, *args, **kwargs: (
-            0 if doctype == "Item" else "Menu A"
+            0 if doctype == "Item" else "Walk-in PL" if doctype == "Price List" else "Menu A"
         )
 
         priced = [{"item_code": "Biryani", "item_name": "Biryani", "qty": 1, "comment": None,
@@ -980,26 +1023,41 @@ class TestPriceItemsForInvoicePhase1(unittest.TestCase):
         mock_price_items.return_value = priced
         mock_reconcile.return_value = {"status": "ok"}
 
-        # _require_open_cashier_session() and the new-items-on-menu check
-        # both run before pricing -- neither was mocked here, so they hit
-        # the real (empty) test DB and threw before pricing was ever reached.
-        with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"), \
-             patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True), \
-             patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all", return_value=[frappe._dict(item="Biryani")]):
-            sync_order(
-                items=[{"item": "Biryani", "qty": 1}],
-                cashier="fake_cashier", owner="fake_owner", mode_of_payment="Cash",
-                customer="Test Customer", no_of_pax=2, last_invoice=None,
-                waiter="fake_waiter", pos_profile="Test Profile",
-            )
-
-        mock_price_items.assert_called_once()
-        appended_items = [
-            call.args[1]
-            for call in mock_invoice.append.call_args_list
-            if call.args and call.args[0] == "items"
+        # (customer menu, customer price list) -> commission price list handed to pricing.
+        cases = [
+            ((None, None), None),
+            (("Company Menu", "Company PL"), "Walk-in PL"),
         ]
-        self.assertEqual(appended_items, priced)
+        for customer_pricing, expected_commission_price_list in cases:
+            with self.subTest(customer_pricing=customer_pricing):
+                mock_price_items.reset_mock()
+                mock_invoice.append.reset_mock()
+
+                # _require_open_cashier_session() and the new-items-on-menu check
+                # both run before pricing -- neither was mocked here, so they hit
+                # the real (empty) test DB and threw before pricing was ever reached.
+                with patch("ury.ury.doctype.ury_order.ury_order.frappe.db.sql"), \
+                     patch("ury.ury.doctype.ury_order.ury_order.frappe.db.exists", return_value=True), \
+                     patch("ury.ury.doctype.ury_order.ury_order.frappe.get_all", return_value=[frappe._dict(item="Biryani")]), \
+                     patch("ury.ury.doctype.ury_order.ury_order.get_customer_price_menu", return_value=customer_pricing):
+                    sync_order(
+                        items=[{"item": "Biryani", "qty": 1}],
+                        cashier="fake_cashier", owner="fake_owner", mode_of_payment="Cash",
+                        customer="Test Customer", no_of_pax=2, last_invoice=None,
+                        waiter="fake_waiter", pos_profile="Test Profile",
+                    )
+
+                mock_price_items.assert_called_once()
+                self.assertEqual(
+                    mock_price_items.call_args.kwargs["commission_price_list"],
+                    expected_commission_price_list,
+                )
+                appended_items = [
+                    call.args[1]
+                    for call in mock_invoice.append.call_args_list
+                    if call.args and call.args[0] == "items"
+                ]
+                self.assertEqual(appended_items, priced)
 
 
 class TestGetTableOrderContext(FrappeTestCase):

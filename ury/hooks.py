@@ -522,6 +522,7 @@ fixtures = [
                     "POS Invoice Item-custom_staff_policy_base_discount_percentage",
                     "Sales Taxes and Charges-custom_is_service_charge",
                     "POS Invoice Item-custom_entered_by_employee",
+                    "POS Invoice Item-custom_commission_base_rate",
                     "Sales Invoice-mobile_number",
                     "Sales Invoice-order_info",
                     "Sales Invoice-order_type",

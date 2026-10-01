@@ -20,6 +20,7 @@ from ury.ury.api.ury_order_reservation_service import (
     _warehouse_for_context,
 )
 from ury.ury.api.ury_stock_policy import get_branch_stock_policy
+from ury.ury.api.ury_customer_pricing import get_customer_price_menu
 from ury.ury.doctype.alert_settings.alert_settings import get_alert_rule
 from ury.ury.api.ury_kot_notification import create_system_notification, get_users_with_role
 from ury.ury.api.ury_order_attribution import (
@@ -551,6 +552,7 @@ def _copy_invoice_item_fields(item_row, qty):
         rate=item_row.rate,
         price_list_rate=item_row.price_list_rate,
         base_price_list_rate=item_row.base_price_list_rate,
+        custom_commission_base_rate=item_row.get("custom_commission_base_rate"),
         comment=item_row.get("comment"),
         custom_course=item_row.get("custom_course"),
         cost_center=item_row.cost_center,
@@ -1017,12 +1019,16 @@ def _department_warehouse_for_item(item_code, branch, company):
     return _warehouse_for_context(context)
 
 
-def price_items_for_invoice(items, price_list, pos_profile, branch, menu, default_performer=None):
+def price_items_for_invoice(items, price_list, pos_profile, branch, menu, default_performer=None, commission_price_list=None):
     """Resolve course and price for each item and build the invoice item dicts.
 
     Returns a list of dicts in the same shape previously passed directly to
     `invoice.append("items", ...)` inside `sync_order`. Does not append to
     the invoice itself.
+
+    `custom_commission_base_rate` is the item's price in
+    `commission_price_list` (the standard walk-in menu's list when the
+    customer is charged from their own), falling back to the charged rate.
 
     sa-architecture-closure (Gap B): also resolves each item's
     `department_warehouse` (the same warehouse availability/reservation/
@@ -1066,6 +1072,15 @@ def price_items_for_invoice(items, price_list, pos_profile, branch, menu, defaul
             department_warehouse = _department_warehouse_for_item(d.get("item"), branch, company)
             # Credited employee for this line: per-line override, else the order's performer.
             line_performer = d.get("performed_by") or default_performer
+            commission_base_rate = item_prices[0].price_list_rate
+            if commission_price_list and commission_price_list != price_list:
+                commission_prices = frappe.db.get_list(
+                    "Item Price",
+                    filters={"item_code": d.get("item"), "price_list": commission_price_list},
+                    fields=["price_list_rate"],
+                )
+                if commission_prices:
+                    commission_base_rate = commission_prices[0].price_list_rate
             priced_items.append(
                 dict(
                     item_code=d.get("item"),
@@ -1079,6 +1094,7 @@ def price_items_for_invoice(items, price_list, pos_profile, branch, menu, defaul
                     rate = item_prices[0].price_list_rate,
                     price_list_rate = item_prices[0].price_list_rate,
                     base_price_list_rate = item_prices[0].price_list_rate,
+                    custom_commission_base_rate = commission_base_rate,
                     cost_center = frappe.db.get_value(
                         "POS Profile", pos_profile, "cost_center"
                         ),
@@ -1354,12 +1370,14 @@ def _validate_sync_items_against_menu(
     table=None,
     room=None,
     order_type=None,
+    menu=None,
 ):
     """Reject newly added disabled / off-menu lines; keep historic + aggregators.
 
     Aggregator flows price from Aggregator Settings (not restaurant menu).
     Historic item codes already on the invoice may stay even if later disabled
     or removed from the menu so captains can still update notes/qty of sent lines.
+    `menu` overrides the room / order-type resolution (customer-priced menu).
     """
     historic_codes = {prev["item_code"] for prev in (past_item or []) if prev.get("item_code")}
     new_codes = []
@@ -1379,7 +1397,7 @@ def _validate_sync_items_against_menu(
                 )
         return
 
-    menu = _resolve_menu_for_sync(branch, table=table, room=room, order_type=order_type)
+    menu = menu or _resolve_menu_for_sync(branch, table=table, room=room, order_type=order_type)
     if not menu:
         frappe.throw(_("Please set an active menu for this restaurant."))
 
@@ -2087,12 +2105,16 @@ def sync_order(
     if invoice.restaurant_table:
         _reconcile_invoice_merged_tables(invoice)
     
+    customer_menu = None
     if order_type == "Aggregators":
         price_list = frappe.db.get_value("Aggregator Settings",{"customer": customer, "parent": invoice.branch, "parenttype": "Branch"},"price_list",)
         
         if not price_list:
             frappe.throw(f"Price list for customer {customer} in branch {invoice.branch} not found in Aggregator Settings.")
     else:
+        customer_menu, customer_price_list = get_customer_price_menu(customer, invoice.branch)
+        if customer_price_list:
+            invoice.selling_price_list = customer_price_list
         price_list = invoice.selling_price_list
 
     # dummy payment
@@ -2158,9 +2180,16 @@ def sync_order(
         table=table,
         room=opening_room or room,
         order_type=effective_order_type,
+        menu=customer_menu,
     )
 
-    menu = _resolve_menu_for_sync(invoice.branch, table=table or invoice.restaurant_table, room=opening_room or room, order_type=effective_order_type) or frappe.db.get_value("URY Menu", {"branch": invoice.branch}, "name")
+    standard_menu = _resolve_menu_for_sync(invoice.branch, table=table or invoice.restaurant_table, room=opening_room or room, order_type=effective_order_type) or frappe.db.get_value("URY Menu", {"branch": invoice.branch}, "name")
+    menu = customer_menu or standard_menu
+
+    # Commission is based on the walk-in price even when the customer pays their own price list.
+    commission_price_list = None
+    if customer_menu and standard_menu:
+        commission_price_list = frappe.db.get_value("Price List", {"restaurant_menu": standard_menu, "enabled": 1}, "name")
 
     resolve_line_performers(pos_profile, invoice.branch, items)
 
@@ -2171,6 +2200,7 @@ def sync_order(
         invoice.branch,
         menu,
         default_performer=performer or invoice.get("custom_waiter_employee"),
+        commission_price_list=commission_price_list,
     )
 
     _sync_order_company = invoice.company or getattr(posprofile, "company", None) or frappe.db.get_value("Branch", invoice.branch, "company")

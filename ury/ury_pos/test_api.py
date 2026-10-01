@@ -64,7 +64,7 @@ class TestGetRestaurantMenuPhase1(unittest.TestCase):
 
         result = getRestaurantMenu("Test POS Profile", room="Room 1", order_type="Dine In")
 
-        mock_resolve.assert_called_once_with("Branch A", "Room 1", "Dine In", True)
+        mock_resolve.assert_called_once_with("Branch A", "Room 1", "Dine In", True, customer=None)
         self.assertEqual(result, {"items": [], "modified_time": None, "name": "Menu A"})
 
     @patch("ury.ury_pos.api.getBranch")
@@ -80,7 +80,51 @@ class TestGetRestaurantMenuPhase1(unittest.TestCase):
         with patch("ury.ury_pos.api.resolve_restaurant_menu") as mock_resolve:
             mock_resolve.return_value = {"items": [], "modified_time": None, "name": "Menu A"}
             getRestaurantMenu("Test POS Profile")
-            mock_resolve.assert_called_once_with("Branch A", None, None, False)
+            mock_resolve.assert_called_once_with("Branch A", None, None, False, customer=None)
+
+    @patch("ury.ury_pos.api.getBranch", return_value="Branch A")
+    @patch("ury.ury_pos.api.frappe.get_doc")
+    @patch("ury.ury_pos.api.frappe.get_roles", return_value=[])
+    def test_getRestaurantMenu_forwards_customer(self, _mock_get_roles, mock_get_doc, _mock_getBranch):
+        mock_get_doc.return_value = MagicMock(role_allowed_for_billing=[])
+
+        with patch("ury.ury_pos.api.resolve_restaurant_menu") as mock_resolve:
+            getRestaurantMenu("Test POS Profile", order_type="Take Away", customer="Acme LLP")
+            mock_resolve.assert_called_once_with("Branch A", None, "Take Away", False, customer="Acme LLP")
+
+
+class TestResolveMenuNameForCustomer(unittest.TestCase):
+    """A customer priced from a URY Menu gets that menu ahead of the
+    room / order-type / active menu, except on the Aggregators flow."""
+
+    @patch("ury.ury_pos.api.frappe.db.get_value", return_value="Active Menu")
+    @patch("ury.ury_pos.api.get_customer_price_menu", return_value=("Company Menu", "Company Price List"))
+    def test_customer_menu_wins(self, mock_customer_menu, _mock_get_value):
+        from ury.ury_pos.api import _resolve_menu_name
+
+        self.assertEqual(
+            _resolve_menu_name("Branch A", order_type="Take Away", cashier=True, customer="Acme LLP"),
+            "Company Menu",
+        )
+        mock_customer_menu.assert_called_once_with("Acme LLP", "Branch A")
+
+    @patch("ury.ury_pos.api.frappe.db.get_value", return_value="Active Menu")
+    @patch("ury.ury_pos.api.get_customer_price_menu", return_value=(None, None))
+    def test_falls_back_without_customer_menu(self, _mock_customer_menu, _mock_get_value):
+        from ury.ury_pos.api import _resolve_menu_name
+
+        self.assertEqual(_resolve_menu_name("Branch A", customer="Walk-in"), "Active Menu")
+
+    @patch("ury.ury_pos.api.frappe.db.get_value", return_value="Active Menu")
+    @patch("ury.ury_pos.api.get_customer_price_menu")
+    def test_aggregators_ignore_customer_menu(self, mock_customer_menu, _mock_get_value):
+        from ury.ury_pos.api import _resolve_menu_name
+
+        self.assertEqual(
+            _resolve_menu_name("Branch A", order_type="Aggregators", customer="Glovo"),
+            "Active Menu",
+        )
+        mock_customer_menu.assert_not_called()
 
 
 class TestGetMenuCourses(unittest.TestCase):
@@ -130,7 +174,7 @@ class TestGetMenuCourses(unittest.TestCase):
 
         result = getMenuCourses("Test POS Profile", room="Room 1", order_type="Dine In")
 
-        mock_resolve_menu.assert_called_once_with("Branch A", "Room 1", "Dine In", True)
+        mock_resolve_menu.assert_called_once_with("Branch A", "Room 1", "Dine In", True, customer=None)
         course_filters = mock_get_all.call_args_list[1].kwargs["filters"]
         self.assertEqual(course_filters, {"name": ["in", ["Desserts", "Starters"]]})
         self.assertEqual([c["name"] for c in result], ["Desserts", "Starters"])

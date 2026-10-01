@@ -16,8 +16,7 @@ from ury.ury.report_api.utils import (
 # "Net Sales" is the tricky one: when a discount was applied on Grand Total,
 # net_total alone overstates the base, so we pro-rate the discount back onto
 # net_total using its share of (net_total + total_taxes_and_charges).
-_BASE_EXPR = {
-	"Net Sales": """
+_NET_SALES_EXPR = """
 		CASE
 		  WHEN b.`apply_discount_on` = 'Grand Total'
 		       AND IFNULL(b.`discount_amount`, 0) > 0
@@ -26,6 +25,28 @@ _BASE_EXPR = {
 		       - (b.`discount_amount` * b.`net_total`
 		          / (b.`net_total` + b.`total_taxes_and_charges` - IFNULL(b.`custom_service_charge_amount`,0)))
 		  ELSE b.`net_total`
+		END
+"""
+
+# Invoice total at the walk-in prices sync_order stamped on each line.
+_COMMISSION_ITEM_TOTAL_EXPR = """
+		(SELECT SUM(bi.`qty` * bi.`custom_commission_base_rate`)
+		 FROM `tabPOS Invoice Item` bi
+		 WHERE bi.`parent` = b.`name` AND bi.`parenttype` = 'POS Invoice')
+"""
+
+_BASE_EXPR = {
+	"Net Sales": _NET_SALES_EXPR,
+	# Grand Total re-based onto walk-in prices: the walk-in item total scaled
+	# by grand_total / total, so discounts reduce it in the same share and
+	# taxes are included. Equals Grand Total when nothing was charged from a
+	# customer price list; invoices saved before the walk-in rate was stamped
+	# have no such total and fall back to Grand Total.
+	"Individual Price": f"""
+		CASE
+		  WHEN IFNULL({_COMMISSION_ITEM_TOTAL_EXPR}, 0) <> 0 AND IFNULL(b.`total`, 0) <> 0
+		  THEN {_COMMISSION_ITEM_TOTAL_EXPR} * b.`grand_total` / b.`total`
+		  ELSE b.`grand_total`
 		END
 	""",
 	"Net Total": "b.`net_total`",
@@ -237,7 +258,8 @@ def _fetch_invoices(start_date, end_date, branch, settings):
 			b.`name` AS invoice, b.`posting_date` AS posting_date, b.`branch` AS branch,
 			b.`custom_waiter_employee` AS opener, b.`custom_closing_employee` AS closer,
 			b.`is_return` AS is_return, b.`return_against` AS return_against,
-			ROUND({base_expr}, 2) AS base_amount
+			ROUND({base_expr}, 2) AS base_amount,
+			b.`grand_total` AS paid_amount
 		FROM `tabPOS Invoice` b
 		{report_settings_join()}
 		WHERE b.`docstatus` = 1 AND {status_pred} {branch_pred}
@@ -379,6 +401,7 @@ def _compute_commission(start_date, end_date, branch, settings, employee_scope=N
 	for row in rows:
 		weights = _weights_for_row(row, settings["attribution_mode"], item_weights)
 		base_amount = flt(row["base_amount"])
+		paid_amount = flt(row.get("paid_amount"), 2)
 
 		if employee_scope is not None:
 			w = weights.get(employee_scope)
@@ -389,6 +412,7 @@ def _compute_commission(start_date, end_date, branch, settings, employee_scope=N
 					"posting_date": str(row["posting_date"]),
 					"branch": row["branch"],
 					"base_amount": base_amount,
+					"paid_amount": paid_amount,
 					"weight": w,
 					"attributed_base": attributed_base,
 					"is_return": bool(row["is_return"]),
@@ -404,9 +428,10 @@ def _compute_commission(start_date, end_date, branch, settings, employee_scope=N
 			key = (emp, row["branch"], period)
 			b = buckets.setdefault(key, {
 				"employee": emp, "branch": row["branch"], "period": period,
-				"base": 0.0, "invoices": 0, "weighted_invoices": 0.0,
+				"base": 0.0, "paid": 0.0, "invoices": 0, "weighted_invoices": 0.0,
 			})
 			b["base"] += base_amount * w
+			b["paid"] += paid_amount * w
 			b["invoices"] += 1
 			b["weighted_invoices"] += w
 
@@ -458,8 +483,26 @@ def _score_and_commission_buckets(buckets, settings):
 		b["rate_source"] = source
 		b["commission"] = commission
 		b["base"] = round(base, 2)
+		b["paid"] = round(b.get("paid", 0.0), 2)
 
 	return meta
+
+
+def _allocate_invoice_commission(per_invoice, buckets, employee, tier_period):
+	"""Sets period/rate/commission on each per-invoice row. A bucket's
+	commission is split across its invoices by attributed base, so the rows
+	sum to the bucket even when tiers apply or a net-negative period earned
+	nothing."""
+	for row in per_invoice:
+		period = _period_key(row["posting_date"], tier_period)
+		bucket = buckets.get((employee, row["branch"], period))
+		row["period"] = period
+		row["rate"] = bucket["rate"] if bucket else 0.0
+		row["commission"] = (
+			flt(bucket["commission"] * row["attributed_base"] / bucket["base"], 2)
+			if bucket and bucket["base"]
+			else 0.0
+		)
 
 
 @frappe.whitelist()
@@ -502,22 +545,25 @@ def get_employee_commission(start_date, end_date, branch=None, employee=None, so
 			"attributed_invoices": 0,
 			"weighted_invoices": 0.0,
 			"attributed_base": 0.0,
+			"attributed_paid": 0.0,
 			"commission_amount": 0.0,
 			"periods": [],
 		})
 		entry["attributed_invoices"] += b["invoices"]
 		entry["weighted_invoices"] += b["weighted_invoices"]
 		entry["attributed_base"] += b["base"]
+		entry["attributed_paid"] += b["paid"]
 		entry["commission_amount"] += b["commission"]
 		entry["periods"].append({
 			"period": b["period"], "branch": b["branch"],
-			"base": b["base"], "rate": b["rate"], "commission": b["commission"],
+			"base": b["base"], "paid": b["paid"], "rate": b["rate"], "commission": b["commission"],
 		})
 
 	employees = list(per_employee.values())
 	for e in employees:
 		e["weighted_invoices"] = round(e["weighted_invoices"], 2)
 		e["attributed_base"] = round(e["attributed_base"], 2)
+		e["attributed_paid"] = round(e["attributed_paid"], 2)
 		e["commission_amount"] = round(e["commission_amount"], 2)
 		e["effective_rate"] = round(e["commission_amount"] / e["attributed_base"] * 100, 2) if e["attributed_base"] else 0.0
 		e["rate_source"] = None
@@ -581,6 +627,7 @@ def get_employee_commission_detail(employee, start_date, end_date, branch=None):
 
 	buckets = {k: v for k, v in buckets.items() if v["employee"] == employee}
 	meta = _score_and_commission_buckets(buckets, settings)
+	_allocate_invoice_commission(per_invoice, buckets, employee, settings["tier_period"])
 
 	total_base = round(sum(b["base"] for b in buckets.values()), 2)
 	total_commission = round(sum(b["commission"] for b in buckets.values()), 2)

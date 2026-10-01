@@ -4,6 +4,8 @@ from frappe import _
 from datetime import date, datetime, timedelta
 from frappe.utils import validate_phone_number
 
+from ury.ury.api.ury_customer_pricing import get_customer_price_menu
+
 
 #GetTable  decripted temporarily
 # @frappe.whitelist()
@@ -16,7 +18,7 @@ from frappe.utils import validate_phone_number
 #     )
 #     return tables
 
-def _resolve_menu_name(branch, room=None, order_type=None, cashier=False):
+def _resolve_menu_name(branch, room=None, order_type=None, cashier=False, customer=None):
     """
     Resolve the URY Menu that applies to a branch for the given room/order type.
 
@@ -25,10 +27,16 @@ def _resolve_menu_name(branch, room=None, order_type=None, cashier=False):
         room: Optional room name
         order_type: Optional order type
         cashier: Boolean indicating if user is a cashier
+        customer: Optional customer whose price list may select its own menu
 
     Returns:
         URY Menu name
     """
+    if customer and order_type != "Aggregators":
+        customer_menu, _price_list = get_customer_price_menu(customer, branch)
+        if customer_menu:
+            return customer_menu
+
     restaurant = frappe.db.get_value("URY Restaurant", {"branch": branch}, "name")
 
     if room:
@@ -75,7 +83,7 @@ def _resolve_menu_name(branch, room=None, order_type=None, cashier=False):
     return menu
 
 
-def resolve_restaurant_menu(branch, room=None, order_type=None, cashier=False):
+def resolve_restaurant_menu(branch, room=None, order_type=None, cashier=False, customer=None):
     """
     Resolve and return menu for a given branch, room, and order type.
 
@@ -84,11 +92,12 @@ def resolve_restaurant_menu(branch, room=None, order_type=None, cashier=False):
         room: Optional room name
         order_type: Optional order type
         cashier: Boolean indicating if user is a cashier
+        customer: Optional customer whose price list may select its own menu
 
     Returns:
         Dict with keys: items, modified_time, name
     """
-    menu = _resolve_menu_name(branch, room, order_type, cashier)
+    menu = _resolve_menu_name(branch, room, order_type, cashier, customer=customer)
 
     # Get menu items (your existing code)
     menu_items = frappe.get_all(
@@ -121,7 +130,7 @@ def resolve_restaurant_menu(branch, room=None, order_type=None, cashier=False):
     }
 
 @frappe.whitelist()
-def getRestaurantMenu(pos_profile, room=None, order_type=None):
+def getRestaurantMenu(pos_profile, room=None, order_type=None, customer=None):
     user_role = frappe.get_roles()
 
     pos_profile = frappe.get_doc("POS Profile", pos_profile)
@@ -131,10 +140,10 @@ def getRestaurantMenu(pos_profile, room=None, order_type=None):
     )
     branch_name = getBranch()
 
-    return resolve_restaurant_menu(branch_name, room, order_type, cashier)
+    return resolve_restaurant_menu(branch_name, room, order_type, cashier, customer=customer)
 
 @frappe.whitelist()
-def getMenuCourses(pos_profile=None, room=None, order_type=None):
+def getMenuCourses(pos_profile=None, room=None, order_type=None, customer=None):
     # Without a POS Profile this stays the legacy whole-catalog call (urypos, Desk).
     if not pos_profile:
         return _menu_courses()
@@ -147,7 +156,7 @@ def getMenuCourses(pos_profile=None, room=None, order_type=None):
     user_roles = frappe.get_roles()
     cashier = any(role.role in user_roles for role in profile.role_allowed_for_billing)
 
-    menu = _resolve_menu_name(branch, room, order_type, cashier)
+    menu = _resolve_menu_name(branch, room, order_type, cashier, customer=customer)
     courses_in_menu = frappe.get_all(
         "URY Menu Item",
         filters={"parent": menu, "disabled": 0},
