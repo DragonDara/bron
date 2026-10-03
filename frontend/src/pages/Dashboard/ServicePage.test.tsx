@@ -56,6 +56,7 @@ vi.mock('@ury/core', () => ({
   call: vi.fn().mockResolvedValue({
     message: { company: 'Test Company' },
   }),
+  resolveUryLanguage: () => 'en',
 }));
 
 describe('ServicePage', () => {
