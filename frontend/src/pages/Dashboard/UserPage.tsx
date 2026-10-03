@@ -7,6 +7,7 @@ import { Switch } from '../../components/ui/switch';
 import { dashboardService } from '../../services/dashboard';
 import { call } from '@ury/core';
 import SideDrawer from '../../components/layout/SideDrawer';
+import { translate } from '../../i18n/translate';
 
 interface UserRecord {
   name: string;
@@ -186,7 +187,7 @@ export const UserPage: React.FC = () => {
       }
       fetchUsers();
       setIsDrawerOpen(false);
-      showToast.success(`User ${editingUser ? 'updated' : 'added'} successfully`);
+      showToast.success(translate(editingUser ? 'User updated successfully' : 'User added successfully'));
     } catch (err: any) {
       console.error('Failed to save User', err);
       let errorMessage = 'Failed to save User';
