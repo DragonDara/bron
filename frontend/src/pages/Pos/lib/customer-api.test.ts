@@ -124,10 +124,19 @@ describe('searchCustomers', () => {
     consoleErrorSpy.mockClear();
   });
 
-  it('returns [] without querying when the search string is blank/whitespace', async () => {
-    expect(await searchCustomers('')).toEqual([]);
-    expect(await searchCustomers('   ')).toEqual([]);
-    expect(getDocListMock).not.toHaveBeenCalled();
+  it('returns latest customers without filters when the search string is blank/whitespace', async () => {
+    getDocListMock.mockResolvedValueOnce([]);
+
+    await searchCustomers('   ');
+
+    const [, options] = getDocListMock.mock.calls[0];
+    expect(options).not.toHaveProperty('orFilters');
+    expect(options).toEqual(
+      expect.objectContaining({
+        orderBy: { field: 'modified', order: 'desc' },
+        limit: 10,
+      }),
+    );
   });
 
   it('builds a scramble-match "like" pattern across name/customer_name/mobile_number', async () => {
@@ -150,12 +159,12 @@ describe('searchCustomers', () => {
     );
   });
 
-  it('defaults limit to 5 when not provided', async () => {
+  it('defaults limit to 10 when not provided', async () => {
     getDocListMock.mockResolvedValueOnce([]);
 
     await searchCustomers('a');
 
-    expect(getDocListMock).toHaveBeenCalledWith('Customer', expect.objectContaining({ limit: 5 }));
+    expect(getDocListMock).toHaveBeenCalledWith('Customer', expect.objectContaining({ limit: 10 }));
   });
 
   it('annotates each result with a human-readable content summary, defaulting missing fields to blank', async () => {

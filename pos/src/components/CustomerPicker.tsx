@@ -25,15 +25,10 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const handleSearch = useCallback((query: string) => {
-    if (!query.trim()) {
-      setResults([]);
-      setSearching(false);
-      setSearchError(null);
-      return;
-    }
+    const term = query.trim();
     setSearching(true);
     setSearchError(null);
-    searchCustomers(query)
+    searchCustomers(term, term ? 5 : 10)
       .then((rows) => {
         setResults(rows.map(parseCustomer));
         setSearchError(null);
