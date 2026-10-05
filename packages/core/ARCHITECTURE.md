@@ -25,7 +25,7 @@ packages/core/src/
 │   └── roles.ts        ← isUserRestrictedFromTableOrders(), canCaptainTransfer(), derivePOSCapabilities()
 ├── storage.ts          ← storage: localStorage wrapper (+ POS-profile helpers)
 ├── format.ts           ← formatCurrency(), formatInvoiceTime()
-├── i18n.ts             ← EN/RU resolution, switcher, residual DOM translation bridge
+├── i18n.ts             ← EN/RU/KK resolution, switcher, residual DOM/runtime translation bridge
 ├── utils/
 │   └── validateField.ts ← shared field validation
 └── print/

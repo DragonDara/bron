@@ -30,7 +30,7 @@ def get_business_setup():
 @frappe.whitelist()
 def get_branches():
     if frappe.session.user == "Guest":
-        frappe.throw("Not permitted")
+        frappe.throw(_("Not permitted"))
 
     comp = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company", {}, "name")
     tax_id = frappe.db.get_value("Company", comp, "tax_id") if comp else None
