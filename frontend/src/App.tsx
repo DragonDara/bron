@@ -65,6 +65,7 @@ import { EmployeeCommission } from './pages/Reports/EmployeeCommission';
 import { EmployeeItemWiseSales } from './pages/Reports/EmployeeItemWiseSales';
 import { CompletedWorkOrders } from './pages/Reports/CompletedWorkOrders';
 import { DailyPnl } from './pages/Reports/DailyPnl';
+import { FloatingLanguageSwitcher } from './i18n/FloatingLanguageSwitcher';
 
 // `/ury/pos/*` — pos/ route tree merged in per PLAN.md
 // tracks/sa-app-consolidation §7 Phase 1. Lazy-loaded per route (not just
@@ -211,6 +212,7 @@ function App() {
 
 function AppRoutes() {
   return (
+    <>
     <Routes>
       <Route element={<SetupGuard />}>
         <Route path="setup-wizard/0" element={<SetupPage />} />
@@ -396,6 +398,8 @@ function AppRoutes() {
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    <FloatingLanguageSwitcher />
+    </>
   );
 }
 
