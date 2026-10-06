@@ -26,6 +26,8 @@ export {
   formatCompactCurrency,
   formatInvoiceTime,
   getCurrencySymbol,
+  getCurrencyCode,
+  setCurrency,
   getAmountLocale,
 } from './format';
 export { initPrinting, loadQzPrinter, disconnectQzPrinter, printWithQz } from './print/qz';

@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from ury.ury.services.currency import get_default_currency
+
 from ury.ury.controllers.setup_redirect import is_ury_setup_complete, repair_interrupted_setup
 
 @frappe.whitelist()
@@ -208,7 +210,7 @@ def _run_configure_data(data, results, user):
             comp_doc = frappe.get_doc({
                 "doctype": "Company",
                 "company_name": default_company,
-                "default_currency": "INR"
+                "default_currency": get_default_currency()
             })
             comp_doc.insert(ignore_permissions=True)
             

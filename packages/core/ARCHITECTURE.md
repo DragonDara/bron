@@ -64,7 +64,8 @@ All take the shared `User` and `PosProfileCombined` types from `types.ts` (struc
 `storage` object over `localStorage`: generic `setItem`/`getItem`/`removeItem` plus `savePosProfileFull`/`getPosProfileFull` (JSON round-trip under the `pos_profile` key).
 
 ### Formatting (`format.ts`)
-- `formatCurrency(amount)` — prefixes the symbol stored under the `currencySymbol` localStorage key (apps must seed it, e.g. after loading the POS profile).
+- `formatCurrency(amount, currency?)` and `formatCompactCurrency(amount)` use the current server-loaded profile (`setCurrency`) or Frappe boot's persisted `sysdefaults.currency`. Symbols come from Currency boot documents or Intl, with the currency code as fallback. Browser currency caches are ignored. Number separators/grouping follow `sysdefaults.number_format`; absent a site format, UI language controls formatting.
+- `getCurrencyCode()` / `getCurrencySymbol()` also serve currency labels and icons. `setCurrency()` without arguments clears the profile override. Never infer monetary currency from UI language or hardcode a default country. Tests: `frontend/src/lib/currency.test.tsx` and `frontend/src/utils/format.test.ts`.
 - `formatInvoiceTime(timestamp)` — locale time for ISO datetimes, handles bare `HH:MM:SS` strings, returns `'No bill activity yet'` for null.
 
 ### Internationalisation (`i18n.ts`)
