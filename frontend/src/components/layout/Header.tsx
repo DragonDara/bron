@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
 import { useBranchContext } from '../../context/BranchContext';
 import { logout, call, getLoggedUser, getUserRoles } from '@ury/core';
 import { Breadcrumbs } from './Breadcrumbs';
 import { useDeskPermission } from '../DeskLink';
+import { Link } from 'react-router-dom';
 import uryLogo from '../../../Public/URY-bg.png';
 import { buttonVariants, messageToPlainText } from '@ury/ui';
 import AskBar from '../chat/AskBar';
@@ -16,13 +16,13 @@ import {
   AlertTriangle,
   Info,
   LogOut,
-  Settings,
   Store,
   Building2,
   Check,
   ExternalLink,
   RefreshCw
 } from 'lucide-react';
+import { LanguageSwitcher } from '../../i18n/LanguageSwitcher';
 
 interface NotificationItem {
   id: string;
@@ -45,8 +45,7 @@ function stripHtml(html: string): string {
 
 
 export const Header: React.FC = () => {
-  const navigate = useNavigate();
-  const { activeBranchId, setActiveBranchId, branches, activeBranch, filterContext } = useBranchContext();
+  const { activeBranchId, setActiveBranchId, branches, activeBranch } = useBranchContext();
   const deskPermission = useDeskPermission('User');
 
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -185,11 +184,10 @@ export const Header: React.FC = () => {
                     setActiveBranchId('all');
                     setIsBranchDropdownOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors ${
-                    activeBranchId === 'all'
+                  className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors ${activeBranchId === 'all'
                       ? 'bg-primary-tint text-primary font-semibold'
                       : 'text-foreground hover:bg-muted'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center space-x-2">
                     <Store className="w-4 h-4" />
@@ -207,11 +205,10 @@ export const Header: React.FC = () => {
                       setActiveBranchId(b.id);
                       setIsBranchDropdownOpen(false);
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors ${
-                      activeBranchId === b.id
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors ${activeBranchId === b.id
                         ? 'bg-primary-tint text-primary font-semibold'
                         : 'text-foreground hover:bg-muted'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center space-x-2 truncate">
                       <span className="truncate">{b.name}</span>
@@ -262,6 +259,9 @@ export const Header: React.FC = () => {
                 <div className="p-4 border-b border-border">
                   <p className="text-sm font-medium text-foreground">{userInfo.fullName}</p>
                   <p className="text-sm text-muted-foreground truncate">{userInfo.email}</p>
+                </div>
+                <div className="border-b border-border">
+                  <LanguageSwitcher inline />
                 </div>
 
                 <div className="py-2">
@@ -353,9 +353,8 @@ export const Header: React.FC = () => {
                   notifications.map((item) => (
                     <div
                       key={item.id}
-                      className={`p-4 transition-colors ${
-                        item.read ? 'bg-card' : 'bg-primary-tint/40'
-                      }`}
+                      className={`p-4 transition-colors ${item.read ? 'bg-card' : 'bg-primary-tint/40'
+                        }`}
                     >
                       <div className="flex items-start space-x-3">
                         <div className="mt-0.5">

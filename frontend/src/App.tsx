@@ -49,6 +49,7 @@ import { ReportsHome } from './pages/Reports/ReportsHome';
 import { TodaysSales } from './pages/Reports/TodaysSales';
 import { DaywiseSales } from './pages/Reports/DaywiseSales';
 import { DaywiseInvoices } from './pages/Reports/DaywiseInvoices';
+import { ShiftInvoices } from './pages/Reports/ShiftInvoices';
 import { MonthWiseSales } from './pages/Reports/MonthWiseSales';
 import { TimeWiseSales } from './pages/Reports/TimeWiseSales';
 import { ServiceWiseSales } from './pages/Reports/ServiceWiseSales';
@@ -64,6 +65,7 @@ import { EmployeeCommission } from './pages/Reports/EmployeeCommission';
 import { EmployeeItemWiseSales } from './pages/Reports/EmployeeItemWiseSales';
 import { CompletedWorkOrders } from './pages/Reports/CompletedWorkOrders';
 import { DailyPnl } from './pages/Reports/DailyPnl';
+import { FloatingLanguageSwitcher } from './i18n/FloatingLanguageSwitcher';
 
 // `/ury/pos/*` — pos/ route tree merged in per PLAN.md
 // tracks/sa-app-consolidation §7 Phase 1. Lazy-loaded per route (not just
@@ -210,6 +212,7 @@ function App() {
 
 function AppRoutes() {
   return (
+    <>
     <Routes>
       <Route element={<SetupGuard />}>
         <Route path="setup-wizard/0" element={<SetupPage />} />
@@ -286,6 +289,7 @@ function AppRoutes() {
             <Route path="today-sales" element={<TodaysSales />} />
             <Route path="daywise-sales" element={<DaywiseSales />} />
             <Route path="daywise-invoices" element={<DaywiseInvoices />} />
+            <Route path="shift-invoices" element={<ShiftInvoices />} />
             <Route path="month-wise-sales" element={<MonthWiseSales />} />
             <Route path="time-wise-sales" element={<TimeWiseSales />} />
             <Route path="service-wise-sales" element={<ServiceWiseSales />} />
@@ -394,6 +398,8 @@ function AppRoutes() {
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    <FloatingLanguageSwitcher />
+    </>
   );
 }
 
