@@ -8,5 +8,6 @@ Layout notes:
 
 - Content is 72 mm wide, the printable area of most 80 mm printers.
 - Payment-method lines with no sales or no returns are hidden rather than printed as zero.
+- `show_payment_modes` / `show_returns` on the report (copied from the POS Profile's *Shift Report: Show …* settings at closing) hide the per-method block and the return lines.
 - Labels are Russian source strings wrapped in `_()` so they stay translatable.
 - Only sales and sale returns are shown; URY has no purchase or cash top-up operations.

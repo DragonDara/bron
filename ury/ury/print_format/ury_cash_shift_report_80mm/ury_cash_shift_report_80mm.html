@@ -55,25 +55,30 @@
 
   <div class="zr-sep"></div>
 
+  {#- Section toggles are copied from the POS Profile at closing. #}
+  {%- if doc.show_payment_modes and doc.payments %}
   {%- for row in doc.payments %}
   <p class="zr-mode">{{ _(row.mode_of_payment) }}</p>
   {%- if row.sales_count %}
   <div class="zr-row zr-indent"><span>{{ _("Продажа") }} ({{ row.sales_count }})</span><span>{{ row.get_formatted("sales_amount", doc) }}</span></div>
   {%- endif %}
-  {%- if row.return_count %}
+  {%- if doc.show_returns and row.return_count %}
   <div class="zr-row zr-indent"><span>{{ _("Возврат продажи") }} ({{ row.return_count }})</span><span>{{ row.get_formatted("return_amount", doc) }}</span></div>
   {%- endif %}
   <div class="zr-row zr-indent zr-subtotal"><span>{{ _("Итого") }}</span><span>{{ row.get_formatted("net_amount", doc) }}</span></div>
-  {%- else %}
-  <p class="zr-empty">{{ _("За смену не было операций") }}</p>
   {%- endfor %}
 
   <div class="zr-sep"></div>
+  {%- elif not doc.sales_count and not doc.return_count %}
+  <p class="zr-empty">{{ _("За смену не было операций") }}</p>
+
+  <div class="zr-sep"></div>
+  {%- endif %}
 
   {%- if doc.sales_count %}
   <div class="zr-row"><span>{{ _("Продажи") }} ({{ doc.sales_count }})</span><span>{{ doc.get_formatted("sales_amount") }}</span></div>
   {%- endif %}
-  {%- if doc.return_count %}
+  {%- if doc.show_returns and doc.return_count %}
   <div class="zr-row"><span>{{ _("Возвраты продаж") }} ({{ doc.return_count }})</span><span>{{ doc.get_formatted("return_amount") }}</span></div>
   {%- endif %}
   <div class="zr-row zr-total"><span>{{ _("ИТОГО") }}</span><span>{{ doc.get_formatted("grand_total") }}</span></div>

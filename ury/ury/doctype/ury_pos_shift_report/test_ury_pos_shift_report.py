@@ -11,10 +11,14 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from ury.ury.api.ury_cash_shift_report import (
+	DEFAULT_PRINT_FORMAT,
 	build_shift_totals,
 	create_shift_report,
+	get_shift_report_print_format,
 	regenerate_shift_report,
+	shift_report_print_options,
 )
+from ury.ury.hooks.ury_pos_profile import validate_shift_report_print_format
 
 MODULE = "ury.ury.api.ury_cash_shift_report"
 CASH_ACCOUNT = "Cash - U"
@@ -221,3 +225,41 @@ class TestRegenerateShiftReport(FrappeTestCase):
 			self.assertEqual(regenerate_shift_report("POS-CLO-2026-00001"), "POS-CLO-2026-00001")
 
 		insert.assert_called_once_with(closing, branch="Branch-1", terminal=None)
+
+
+class TestPosProfileSettings(FrappeTestCase):
+	def _options(self, settings):
+		with patch(f"{MODULE}.frappe.db.get_value", return_value=settings):
+			return shift_report_print_options("Profile-1")
+
+	def test_sections_default_to_shown(self):
+		# Profiles saved before the settings existed have no value yet.
+		self.assertEqual(
+			self._options(frappe._dict()),
+			{"show_payment_modes": 1, "show_returns": 1},
+		)
+
+	def test_sections_can_be_turned_off(self):
+		settings = frappe._dict(
+			custom_shift_report_show_payment_modes=0,
+			custom_shift_report_show_returns=0,
+		)
+		self.assertEqual(self._options(settings), {"show_payment_modes": 0, "show_returns": 0})
+
+	def test_print_format_falls_back_to_bundled_one(self):
+		with patch(f"{MODULE}.frappe.db.get_value", return_value=None):
+			self.assertEqual(get_shift_report_print_format("Profile-1"), DEFAULT_PRINT_FORMAT)
+
+	def test_print_format_from_profile(self):
+		with patch(f"{MODULE}.frappe.db.get_value", return_value="My Z Report"):
+			self.assertEqual(get_shift_report_print_format("Profile-1"), "My Z Report")
+
+	def test_profile_rejects_receipt_format_for_shift_report(self):
+		profile = frappe._dict(custom_shift_report_print_format="POS Invoice Receipt")
+		with patch("ury.ury.hooks.ury_pos_profile.frappe.db.get_value", return_value="POS Invoice"):
+			self.assertRaises(frappe.ValidationError, validate_shift_report_print_format, profile)
+
+	def test_profile_accepts_shift_report_format(self):
+		profile = frappe._dict(custom_shift_report_print_format=DEFAULT_PRINT_FORMAT)
+		with patch("ury.ury.hooks.ury_pos_profile.frappe.db.get_value", return_value="URY POS Shift Report"):
+			validate_shift_report_print_format(profile)  # must not raise

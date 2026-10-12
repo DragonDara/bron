@@ -29,6 +29,10 @@
   "return_amount",
   "return_count",
   "grand_total",
+  "print_options_section",
+  "show_payment_modes",
+  "column_break_print_options",
+  "show_returns",
   "payments_section",
   "payments"
  ],
@@ -193,6 +197,31 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "description": "Copied from the POS Profile at closing, so reprints look the same even if the profile changes later.",
+   "fieldname": "print_options_section",
+   "fieldtype": "Section Break",
+   "label": "Print Options"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_payment_modes",
+   "fieldtype": "Check",
+   "label": "Show Payment Methods",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_print_options",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_returns",
+   "fieldtype": "Check",
+   "label": "Show Returns",
+   "read_only": 1
+  },
+  {
    "fieldname": "payments_section",
    "fieldtype": "Section Break",
    "label": "Payments"
@@ -208,7 +237,7 @@
  "in_create": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-12 18:00:00.000000",
+ "modified": "2026-10-12 21:00:00.000000",
  "modified_by": "Administrator",
  "module": "URY",
  "name": "URY POS Shift Report",

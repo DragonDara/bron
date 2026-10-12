@@ -6,6 +6,22 @@ def validate(doc, method):
     validate_bill_check(doc, method)
     validate_cost_center(doc, method)
     validate_credit_settlement(doc, method)
+    validate_shift_report_print_format(doc, method)
+
+
+def validate_shift_report_print_format(doc, method=None):
+    # The link filter only guides the picker; the receipt format must never
+    # be used for the internal shift report (and vice versa).
+    print_format = doc.get("custom_shift_report_print_format")
+    if not print_format:
+        return
+
+    if frappe.db.get_value("Print Format", print_format, "doc_type") != "URY POS Shift Report":
+        frappe.throw(
+            _("Shift Report Print Format {0} is not a URY POS Shift Report print format.").format(
+                print_format
+            )
+        )
 
 
 def validate_credit_settlement(doc, method=None):

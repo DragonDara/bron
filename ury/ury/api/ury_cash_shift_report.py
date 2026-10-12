@@ -13,9 +13,10 @@ pos_closing_entry.js and `POSClosingDialog.tsx`).
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 REPORT_DOCTYPE = "URY POS Shift Report"
+DEFAULT_PRINT_FORMAT = "URY Cash Shift Report 80mm"
 SAVEPOINT = "ury_pos_shift_report"
 
 
@@ -144,12 +145,44 @@ def _insert_report(closing, branch, terminal):
 			"period_start_date": closing.period_start_date,
 			"period_end_date": closing.period_end_date,
 			**build_shift_totals(invoices, payments),
+			**shift_report_print_options(closing.pos_profile),
 		}
 	)
 	report.flags.ignore_permissions = True
 	report.insert()
 	report.submit()
 	return report
+
+
+def shift_report_print_options(pos_profile):
+	"""Section toggles copied from the POS Profile onto the snapshot, so a
+	reprint never changes when the profile is edited later. Unset means on."""
+	settings = (
+		frappe.db.get_value(
+			"POS Profile",
+			pos_profile,
+			["custom_shift_report_show_payment_modes", "custom_shift_report_show_returns"],
+			as_dict=True,
+		)
+		or {}
+	)
+	return {
+		"show_payment_modes": _enabled(settings.get("custom_shift_report_show_payment_modes")),
+		"show_returns": _enabled(settings.get("custom_shift_report_show_returns")),
+	}
+
+
+def _enabled(value):
+	return 1 if value is None else cint(value)
+
+
+def get_shift_report_print_format(pos_profile):
+	"""The profile's chosen shift report layout, else the bundled 80 mm one.
+	Never the profile's receipt `print_format`."""
+	return (
+		frappe.db.get_value("POS Profile", pos_profile, "custom_shift_report_print_format")
+		or DEFAULT_PRINT_FORMAT
+	)
 
 
 def _fetch_closing_invoices(closing):
