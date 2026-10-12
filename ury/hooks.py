@@ -283,6 +283,10 @@ doc_events = {
             "ury.ury.hooks.ury_pos_closing_reconciliation.validate_closing_reconciliation",
             "ury.ury.hooks.pos_closing.validate_daily_checklists",
         ],
+        # Internal shift report snapshot. Runs after ERPNext's own on_submit
+        # (invoice consolidation); a report failure is logged, never raised.
+        "on_submit": "ury.ury.api.ury_cash_shift_report.create_shift_report",
+        "on_cancel": "ury.ury.api.ury_cash_shift_report.cancel_shift_report",
         },
     "Quality Review": {
         "on_update": "ury.ury.hooks.update_accounts.checklist",
