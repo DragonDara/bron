@@ -6,15 +6,20 @@ vi.mock("../i18n", () => ({
   t: (key: string) => key,
 }));
 
+// Stable, mutable identity so a test can switch to a sub-cashier profile.
+const { mockPosProfile } = vi.hoisted(() => ({
+  mockPosProfile: {
+    name: "POS-001",
+    multiple_cashier: 0,
+    owner: "test_user",
+    branch: "Kozhikode",
+    company: "URY",
+  },
+}));
+
 vi.mock("../store/pos-store", () => ({
   usePOSStore: () => ({
-    posProfile: {
-      name: "POS-001",
-      multiple_cashier: 0,
-      owner: "test_user",
-      branch: "Kozhikode",
-      company: "URY",
-    },
+    posProfile: mockPosProfile,
   }),
 }));
 
@@ -55,6 +60,14 @@ vi.mock("../../../lib/pos/checklist-api", () => ({
   getChecklist: vi.fn(),
 }));
 
+vi.mock("../lib/shift-report-api", () => ({
+  getShiftReportPrintInfo: vi.fn().mockResolvedValue({ report: null, print_format: "", auto_print: 0 }),
+}));
+
+vi.mock("../lib/print", () => ({
+  printShiftReport: vi.fn(),
+}));
+
 vi.mock("./ClosingPaymentTable", () => ({
   default: ({ rows }: any) => (
     <div data-testid="closing-payment-table">
@@ -76,6 +89,8 @@ vi.mock("./ChecklistGateDialog", () => ({
 import POSClosingDialog from "./POSClosingDialog";
 import * as checklistApi from "../../../lib/pos/checklist-api";
 import * as posClosingApi from "../lib/pos-closing-api";
+import * as shiftReportApi from "../lib/shift-report-api";
+import * as printApi from "../lib/print";
 
 const defaultProps = {
   open: true,
@@ -160,5 +175,99 @@ describe("POSClosingDialog", () => {
     await waitFor(() => {
       expect(posClosingApi.createPosClosingEntry).toHaveBeenCalled();
     });
+  });
+});
+
+describe("POSClosingDialog shift report printing", () => {
+  const printInfo = {
+    report: "PCE-001",
+    print_format: "URY Cash Shift Report 80mm",
+    auto_print: 1,
+  };
+
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mockPosProfile.multiple_cashier = 0;
+    mockPosProfile.owner = "test_user";
+    vi.mocked(checklistApi.getChecklist).mockResolvedValue({ logStatus: "Complete" } as never);
+    vi.mocked(shiftReportApi.getShiftReportPrintInfo).mockResolvedValue(printInfo);
+    vi.mocked(printApi.printShiftReport).mockResolvedValue("qz");
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockPosProfile.multiple_cashier = 0;
+    mockPosProfile.owner = "test_user";
+  });
+
+  const closeShift = async () => {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "pos_closing.submit" }));
+    return user;
+  };
+
+  it("prints the report once after a successful main closing", async () => {
+    render(<POSClosingDialog {...defaultProps} />);
+    await closeShift();
+
+    // Successful close continues to the post-close checklist step.
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(shiftReportApi.getShiftReportPrintInfo).toHaveBeenCalledWith("PCE-001");
+    expect(printApi.printShiftReport).toHaveBeenCalledTimes(1);
+    expect(printApi.printShiftReport).toHaveBeenCalledWith({
+      report: "PCE-001",
+      printFormat: "URY Cash Shift Report 80mm",
+      posProfile: mockPosProfile,
+    });
+  });
+
+  it("does not print when auto print is off", async () => {
+    vi.mocked(shiftReportApi.getShiftReportPrintInfo).mockResolvedValue({ ...printInfo, auto_print: 0 });
+    render(<POSClosingDialog {...defaultProps} />);
+    await closeShift();
+
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(printApi.printShiftReport).not.toHaveBeenCalled();
+  });
+
+  it("keeps the closing and offers a retry when the printer fails", async () => {
+    vi.mocked(printApi.printShiftReport).mockRejectedValueOnce(new Error("QZ Tray is not running"));
+    render(<POSClosingDialog {...defaultProps} />);
+    const user = await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_print_failed_title")).toBeInTheDocument();
+    expect(screen.getByText("QZ Tray is not running")).toBeInTheDocument();
+    expect(screen.queryByText("pos_closing.submit_failed")).not.toBeInTheDocument();
+    expect(posClosingApi.submitPosClosingEntry).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "pos_closing.report_print_again" }));
+
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(printApi.printShiftReport).toHaveBeenCalledTimes(2);
+    expect(posClosingApi.submitPosClosingEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("can continue without the printout", async () => {
+    vi.mocked(printApi.printShiftReport).mockRejectedValue(new Error("Printer offline"));
+    render(<POSClosingDialog {...defaultProps} />);
+    const user = await closeShift();
+
+    await user.click(await screen.findByRole("button", { name: "pos_closing.report_continue" }));
+
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(printApi.printShiftReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("never prints a shift report for a Sub POS Closing", async () => {
+    mockPosProfile.multiple_cashier = 1;
+    mockPosProfile.owner = "main_cashier";
+    render(<POSClosingDialog {...defaultProps} />);
+    await closeShift();
+
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(posClosingApi.submitSubPosClosing).toHaveBeenCalled();
+    expect(shiftReportApi.getShiftReportPrintInfo).not.toHaveBeenCalled();
+    expect(printApi.printShiftReport).not.toHaveBeenCalled();
   });
 });

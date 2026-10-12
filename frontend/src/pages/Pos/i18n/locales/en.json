@@ -108,7 +108,14 @@
     "submitting": "Closing POS...",
     "submit": "Close POS",
     "submit_failed": "Failed to close POS",
-    "load_failed": "Failed to load closing details"
+    "load_failed": "Failed to load closing details",
+    "report_print_failed_title": "Shift closed, report not printed",
+    "report_print_failed_description": "The shift is closed. Check the printer and try again, or continue and reprint the shift report later.",
+    "report_print_failed": "Could not print the shift report.",
+    "report_missing": "The shift is closed, but its report was not created. Ask an administrator to check the Error Log.",
+    "report_print_again": "Print again",
+    "report_printing": "Printing...",
+    "report_continue": "Continue"
   },
   "checklist": {
     "title_opening": "Opening Checklist",

@@ -67,6 +67,82 @@ def regenerate_shift_report(pos_closing_entry):
 	return _insert_report(closing, branch=_closing_branch(closing), terminal=None).name
 
 
+@frappe.whitelist()
+def get_shift_report_print_info(pos_closing_entry):
+	"""What the POS needs right after submitting a closing: the report to
+	print (None if it failed to be created), its layout, and whether the
+	profile wants it printed automatically."""
+	frappe.has_permission("POS Closing Entry", "read", doc=pos_closing_entry, throw=True)
+	pos_profile = frappe.db.get_value("POS Closing Entry", pos_closing_entry, "pos_profile")
+
+	report = frappe.db.get_value(REPORT_DOCTYPE, {"pos_closing_entry": pos_closing_entry, "docstatus": 1})
+	if report:
+		frappe.has_permission(REPORT_DOCTYPE, "read", doc=report, throw=True)
+
+	return {
+		"report": report,
+		"print_format": get_shift_report_print_format(pos_profile),
+		"auto_print": _enabled(
+			frappe.db.get_value("POS Profile", pos_profile, "custom_auto_print_shift_report")
+		),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def network_print_shift_report(report):
+	"""Send a stored report to the profile's first bill printer via CUPS.
+
+	`ury_print.network_printing` is POS Invoice specific (it marks the invoice
+	printed afterwards) and returns errors as strings; this raises instead, so
+	the POS can tell the cashier and offer a retry.
+	"""
+	import os
+
+	from frappe.www.printview import validate_print_permission
+
+	doc = frappe.get_doc(REPORT_DOCTYPE, report)
+	validate_print_permission(doc)
+
+	printer_setting = frappe.db.get_value(
+		"URY Printer Settings",
+		{"parenttype": "POS Profile", "parent": doc.pos_profile, "bill": 1},
+		"printer",
+		order_by="idx asc",
+	)
+	if not printer_setting:
+		frappe.throw(_("POS Profile {0} has no bill printer.").format(doc.pos_profile))
+	settings = frappe.get_doc("Network Printer Settings", printer_setting)
+
+	try:
+		import cups
+	except ImportError:
+		frappe.throw(_("Network printing is not available on this server (python-cups is missing)."))
+
+	try:
+		cups.setServer(settings.server_ip)
+		cups.setPort(settings.port)
+		conn = cups.Connection()
+	except Exception as e:
+		frappe.throw(_("Could not connect to printer {0}: {1}").format(printer_setting, e))
+
+	pdf = frappe.get_print(
+		REPORT_DOCTYPE,
+		doc.name,
+		get_shift_report_print_format(doc.pos_profile),
+		doc=doc,
+		no_letterhead=1,
+		as_pdf=True,
+	)
+	file_path = os.path.join("/", "tmp", f"frappe-pdf-{frappe.generate_hash()}.pdf")
+	try:
+		with open(file_path, "wb") as f:
+			f.write(pdf)
+		conn.printFile(settings.printer_name, file_path, doc.name, {})
+	finally:
+		if os.path.exists(file_path):
+			os.remove(file_path)
+
+
 def build_shift_totals(invoices, payments):
 	"""Aggregate submitted POS invoices and their payment rows.
 

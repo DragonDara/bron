@@ -15,12 +15,15 @@ from ury.ury.api.ury_cash_shift_report import (
 	build_shift_totals,
 	create_shift_report,
 	get_shift_report_print_format,
+	get_shift_report_print_info,
+	network_print_shift_report,
 	regenerate_shift_report,
 	shift_report_print_options,
 )
 from ury.ury.hooks.ury_pos_profile import validate_shift_report_print_format
 
 MODULE = "ury.ury.api.ury_cash_shift_report"
+REPORT_DOCTYPE_NAME = "URY POS Shift Report"
 CASH_ACCOUNT = "Cash - U"
 
 
@@ -263,3 +266,53 @@ class TestPosProfileSettings(FrappeTestCase):
 		profile = frappe._dict(custom_shift_report_print_format=DEFAULT_PRINT_FORMAT)
 		with patch("ury.ury.hooks.ury_pos_profile.frappe.db.get_value", return_value="URY POS Shift Report"):
 			validate_shift_report_print_format(profile)  # must not raise
+
+
+class TestShiftReportPrintApi(FrappeTestCase):
+	def _values(self, mapping):
+		"""frappe.db.get_value stub keyed by doctype."""
+
+		def get_value(doctype, *args, **kwargs):
+			return mapping.get(doctype)
+
+		return get_value
+
+	def test_print_info_for_closing_with_report(self):
+		values = {
+			"POS Closing Entry": "Profile-1",
+			REPORT_DOCTYPE_NAME: "POS-CLO-1",
+			"POS Profile": None,  # auto print / format never set on this profile
+		}
+		with (
+			patch(f"{MODULE}.frappe.has_permission", return_value=True) as has_permission,
+			patch(f"{MODULE}.frappe.db.get_value", side_effect=self._values(values)),
+		):
+			info = get_shift_report_print_info("POS-CLO-1")
+
+		self.assertEqual(info, {"report": "POS-CLO-1", "print_format": DEFAULT_PRINT_FORMAT, "auto_print": 1})
+		checked = [c.args[0] for c in has_permission.call_args_list]
+		self.assertEqual(checked, ["POS Closing Entry", REPORT_DOCTYPE_NAME])
+
+	def test_print_info_without_report(self):
+		values = {"POS Closing Entry": "Profile-1", REPORT_DOCTYPE_NAME: None, "POS Profile": 0}
+		with (
+			patch(f"{MODULE}.frappe.has_permission", return_value=True),
+			patch(f"{MODULE}.frappe.db.get_value", side_effect=self._values(values)),
+		):
+			info = get_shift_report_print_info("POS-CLO-1")
+
+		self.assertIsNone(info["report"])
+		self.assertEqual(info["auto_print"], 0)
+
+	def test_print_info_requires_closing_permission(self):
+		with patch(f"{MODULE}.frappe.has_permission", side_effect=frappe.PermissionError):
+			self.assertRaises(frappe.PermissionError, get_shift_report_print_info, "POS-CLO-1")
+
+	def test_network_print_needs_a_bill_printer(self):
+		report = frappe._dict(doctype=REPORT_DOCTYPE_NAME, name="POS-CLO-1", pos_profile="Profile-1")
+		with (
+			patch(f"{MODULE}.frappe.get_doc", return_value=report),
+			patch("frappe.www.printview.validate_print_permission"),
+			patch(f"{MODULE}.frappe.db.get_value", return_value=None),
+		):
+			self.assertRaises(frappe.ValidationError, network_print_shift_report, "POS-CLO-1")
