@@ -14,6 +14,7 @@
   "branch",
   "company",
   "cashier",
+  "cashier_name",
   "terminal",
   "terminal_name",
   "period_section",
@@ -94,6 +95,13 @@
    "options": "User",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fetch_from": "cashier.full_name",
+   "fieldname": "cashier_name",
+   "fieldtype": "Data",
+   "label": "Cashier Name",
+   "read_only": 1
   },
   {
    "description": "Resolved server-side from the enrolled device that submitted the closing. Empty when closed from Desk/API.",
@@ -200,7 +208,7 @@
  "in_create": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-10-12 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "URY",
  "name": "URY POS Shift Report",

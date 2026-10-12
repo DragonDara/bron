@@ -1,0 +1,84 @@
+{# Internal (non-fiscal) Z-report for an 80 mm thermal roll. Renders the stored
+   URY POS Shift Report snapshot only; every figure is computed at closing time. #}
+<style>
+  @page { margin: 0; }
+
+  .print-format {
+    box-sizing: border-box;
+    width: 72mm;
+    max-width: 72mm;
+    margin: 0 auto;
+    padding: 2mm 0 !important;
+    color: #000;
+    font: 9.5pt/1.3 Arial, Helvetica, sans-serif;
+  }
+  .print-format .zr * { box-sizing: border-box; }
+  .print-format .zr p { margin: 0; }
+
+  .print-format .zr-company { text-align: center; font-weight: bold; font-size: 11pt; word-wrap: break-word; overflow-wrap: anywhere; }
+  .print-format .zr-title { margin-top: 2mm; text-align: center; font-weight: bold; font-size: 14pt; letter-spacing: 0.5pt; }
+  .print-format .zr-note { text-align: center; font-size: 8pt; }
+  .print-format .zr-sep { margin: 2mm 0; border-top: 1px dashed #000; }
+
+  .print-format .zr-row { display: table; width: 100%; table-layout: fixed; }
+  .print-format .zr-row > span { display: table-cell; vertical-align: top; }
+  .print-format .zr-row > span:first-child { word-wrap: break-word; overflow-wrap: anywhere; padding-right: 2mm; }
+  .print-format .zr-row > span:last-child { width: 45%; text-align: right; white-space: nowrap; }
+  .print-format .zr-meta .zr-row > span:last-child { width: 62%; white-space: normal; word-wrap: break-word; overflow-wrap: anywhere; }
+
+  .print-format .zr-mode { margin-top: 1.5mm; font-weight: bold; text-transform: uppercase; word-wrap: break-word; overflow-wrap: anywhere; }
+  .print-format .zr-indent { padding-left: 3mm; }
+  .print-format .zr-subtotal { font-weight: bold; }
+  .print-format .zr-total { font-weight: bold; font-size: 12pt; }
+  .print-format .zr-empty { text-align: center; }
+  .print-format .zr-footer { margin-top: 2mm; text-align: center; font-size: 8pt; }
+</style>
+
+<div class="zr">
+  <p class="zr-company">{{ doc.company or "" }}</p>
+  {%- if doc.branch and doc.branch != doc.company %}
+  <p class="zr-note">{{ doc.branch }}</p>
+  {%- endif %}
+
+  <p class="zr-title">{{ _("Z-ОТЧЁТ") }}</p>
+  <p class="zr-note">{{ _("Внутренний управленческий отчёт. Не является фискальным документом") }}</p>
+
+  <div class="zr-sep"></div>
+
+  <div class="zr-meta">
+    <div class="zr-row"><span>{{ _("Смена") }}</span><span>{{ doc.pos_closing_entry }}</span></div>
+    <div class="zr-row"><span>{{ _("Терминал") }}</span><span>{{ doc.terminal_name or doc.terminal or _("не указан") }}</span></div>
+    <div class="zr-row"><span>{{ _("Кассир") }}</span><span>{{ doc.cashier_name or doc.cashier }}</span></div>
+    <div class="zr-row"><span>{{ _("Открытие") }}</span><span>{{ doc.get_formatted("period_start_date") }}</span></div>
+    <div class="zr-row"><span>{{ _("Закрытие") }}</span><span>{{ doc.get_formatted("period_end_date") }}</span></div>
+  </div>
+
+  <div class="zr-sep"></div>
+
+  {%- for row in doc.payments %}
+  <p class="zr-mode">{{ _(row.mode_of_payment) }}</p>
+  {%- if row.sales_count %}
+  <div class="zr-row zr-indent"><span>{{ _("Продажа") }} ({{ row.sales_count }})</span><span>{{ row.get_formatted("sales_amount", doc) }}</span></div>
+  {%- endif %}
+  {%- if row.return_count %}
+  <div class="zr-row zr-indent"><span>{{ _("Возврат продажи") }} ({{ row.return_count }})</span><span>{{ row.get_formatted("return_amount", doc) }}</span></div>
+  {%- endif %}
+  <div class="zr-row zr-indent zr-subtotal"><span>{{ _("Итого") }}</span><span>{{ row.get_formatted("net_amount", doc) }}</span></div>
+  {%- else %}
+  <p class="zr-empty">{{ _("За смену не было операций") }}</p>
+  {%- endfor %}
+
+  <div class="zr-sep"></div>
+
+  {%- if doc.sales_count %}
+  <div class="zr-row"><span>{{ _("Продажи") }} ({{ doc.sales_count }})</span><span>{{ doc.get_formatted("sales_amount") }}</span></div>
+  {%- endif %}
+  {%- if doc.return_count %}
+  <div class="zr-row"><span>{{ _("Возвраты продаж") }} ({{ doc.return_count }})</span><span>{{ doc.get_formatted("return_amount") }}</span></div>
+  {%- endif %}
+  <div class="zr-row zr-total"><span>{{ _("ИТОГО") }}</span><span>{{ doc.get_formatted("grand_total") }}</span></div>
+
+  <div class="zr-sep"></div>
+
+  <p class="zr-footer">{{ _("Сформирован") }}: {{ doc.get_formatted("creation") }}</p>
+</div>
