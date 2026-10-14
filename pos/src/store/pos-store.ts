@@ -6,7 +6,7 @@ import { getCurrencyInfo, PosProfileCombined, getCombinedPosProfile } from '../l
 import { getMenuCourses } from '../lib/menu-course-api';
 import { getCustomerGroups, getCustomerTerritories } from '../lib/customer-api';
 import { DEFAULT_ORDER_TYPE, OrderType } from '../data/order-types';
-import { getTableOrder, TableOrder } from '../lib/order-api';
+import { getOrderForEdit, getTableOrder, TableOrder } from '../lib/order-api';
 import { getPaymentModes } from '../lib/payment-api';
 
 // Constants
@@ -196,6 +196,12 @@ interface POSStore extends POSState {
   getItemPrice: (item: OrderItem) => number;
   getItemQuantityFromCart: (item: MenuItem) => number;
   loadTableOrder: (table: string) => Promise<void>;
+  /**
+   * Loads one open order into the cart for editing (Orders page), with the
+   * same line keys, comments, pax, performer and `modified` stamp as
+   * `loadTableOrder`. Resolves `false` when the order is no longer open.
+   */
+  openOrderForEdit: (invoiceName: string, table?: string | null) => Promise<boolean>;
   clearTableOrder: () => void;
   isMenuInteractionDisabled: () => boolean;
   isOrderInteractionDisabled: () => boolean;
@@ -228,6 +234,73 @@ const calculateItemPrice = (item: OrderItem): number => {
   const basePrice = item.selectedVariant?.price || item.price;
   const addonsTotal = item.selectedAddons?.reduce((sum, addon) => sum + addon.price, 0) || 0;
   return basePrice + addonsTotal;
+};
+
+const EMPTY_LOADED_ORDER: Partial<POSState> = {
+  tableOrder: null,
+  activeOrders: [],
+  selectedCustomer: null,
+  selectedPerformer: null,
+  isUpdatingOrder: false,
+  orderId: null,
+  noOfPax: 1,
+  lastModifiedTime: null,
+  orderComment: '',
+};
+
+const hasLoadedOrder = (response: TableOrder): boolean =>
+  Boolean(response.message?.name && response.message.items?.length);
+
+const loadedOrderState = (response: TableOrder): Partial<POSState> => {
+  const order = response.message;
+  if (!order || !hasLoadedOrder(response)) return EMPTY_LOADED_ORDER;
+
+  const orderItems: OrderItem[] = order.items.map(item => {
+    const orderItem = {
+      id: item.item_code,
+      name: item.item_name,
+      price: item.rate,
+      quantity: item.qty,
+      amount: item.amount,
+      image: item.image || null,
+      item: item.item_code,
+      item_name: item.item_name,
+      item_image: null,
+      course: '',
+      description: item.description || '',
+      special_dish: 0 as 0 | 1,
+      tax_rate: 0,
+      comment: item.comment || '',
+      invoiceItemName: item.name,
+    };
+    const uniqueId = generateUniqueId(orderItem as OrderItem);
+    return {
+      ...orderItem,
+      uniqueId,
+      // Prefer the key the server already persisted for this row, so
+      // the identity survives the round trip byte-for-byte. Only a
+      // legacy row saved before the key was persisted falls back to
+      // the locally regenerated uniqueId (the server then adopts it —
+      // see ury_order.py::_backfill_previous_line_keys).
+      reservationLineKey: item.reservation_line_key || uniqueId,
+    } as OrderItem;
+  });
+
+  return {
+    tableOrder: response,
+    activeOrders: orderItems,
+    selectedCustomer: order.customer ? {
+      id: order.customer,
+      name: order.customer_name,
+      phone: order.mobile_number,
+    } : null,
+    selectedPerformer: order.custom_waiter_employee || null,
+    isUpdatingOrder: true,
+    orderId: order.name,
+    noOfPax: order.no_of_pax || 1,
+    lastModifiedTime: order.modified || null,
+    orderComment: order.custom_comments || '',
+  };
 };
 
 export const usePOSStore = create<POSStore>((set, get) => ({
@@ -689,84 +762,30 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     try {
       set({ orderLoading: true, error: null });
       const response = await getTableOrder(table);
-      const order = response.message;
-      if (order && order.name && order.items && order.items.length > 0) {
-        const orderItems: OrderItem[] = order.items.map(item => {
-          const orderItem = {
-            id: item.item_code,
-            name: item.item_name,
-            price: item.rate,
-            quantity: item.qty,
-            amount: item.amount,
-            image: item.image || null,
-            item: item.item_code,
-            item_name: item.item_name,
-            item_image: null,
-            course: '',
-            description: item.description || '',
-            special_dish: 0 as 0 | 1,
-            tax_rate: 0,
-            comment: item.comment || '',
-            invoiceItemName: item.name,
-          };
-          const uniqueId = generateUniqueId(orderItem as OrderItem);
-          return {
-            ...orderItem,
-            uniqueId,
-            // Prefer the key the server already persisted for this row, so
-            // the identity survives the round trip byte-for-byte. Only a
-            // legacy row saved before the key was persisted falls back to
-            // the locally regenerated uniqueId (the server then adopts it —
-            // see ury_order.py::_backfill_previous_line_keys).
-            reservationLineKey: item.reservation_line_key || uniqueId,
-          } as OrderItem;
-        });
-
-        set({
-          tableOrder: response,
-          activeOrders: orderItems,
-          selectedCustomer: order.customer ? {
-            id: order.customer,
-            name: order.customer_name,
-            phone: order.mobile_number,
-          } : null,
-          selectedPerformer: order.custom_waiter_employee || null,
-          isUpdatingOrder: true,
-          orderId: order.name,
-          noOfPax: order.no_of_pax || 1,
-          lastModifiedTime: order.modified || null,
-          orderComment: order.custom_comments || '',
-        });
-      } else {
-        set({
-          tableOrder: null,
-          activeOrders: [],
-          selectedCustomer: null,
-          selectedPerformer: null,
-          isUpdatingOrder: false,
-          orderId: null,
-          noOfPax: 1,
-          lastModifiedTime: null,
-          orderComment: '',
-        });
-      }
+      set(loadedOrderState(response));
     } catch (error) {
-      set({
-        error: 'Failed to load table order',
-        tableOrder: null,
-        activeOrders: [],
-        selectedCustomer: null,
-        selectedPerformer: null,
-        isUpdatingOrder: false,
-        orderId: null,
-        noOfPax: 1,
-        lastModifiedTime: null,
-        orderComment: '',
-      });
+      set({ ...EMPTY_LOADED_ORDER, error: 'Failed to load table order' });
     } finally {
       set({ orderLoading: false });
     }
     void get().syncMenuWithCustomer();
+  },
+
+  openOrderForEdit: async (invoiceName: string, table?: string | null) => {
+    const response = await getOrderForEdit(invoiceName, table);
+    const order = response.message;
+    if (!order || !hasLoadedOrder(response)) return false;
+
+    get().resetOrderState();
+    get().setSelectedOrderType(order.order_type as OrderType);
+    if (order.restaurant_table) {
+      // The order is applied below from this response; a table lookup would
+      // skip printed orders and could replace it with an empty cart.
+      get().setSelectedTable(order.restaurant_table, order.custom_restaurant_room || null, true);
+    }
+    set(loadedOrderState(response));
+    void get().syncMenuWithCustomer();
+    return true;
   },
 
   clearTableOrder: () => {
