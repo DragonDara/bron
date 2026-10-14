@@ -73,7 +73,19 @@ export async function getTableOrder(table_no: string): Promise<TableOrder> {
     console.error('Error fetching table order:', error);
     return { message: null };
   }
-} 
+}
+
+/**
+ * Fetches one specific open order by invoice name, e.g. to edit it from the
+ * Orders page. Unlike `getTableOrder`, errors propagate: a failed load must
+ * never look like "no order", or saving would create a new order instead.
+ */
+export async function getOrderForEdit(invoiceName: string, table?: string | null): Promise<TableOrder> {
+  return call.get('ury.ury.doctype.ury_order.ury_order.get_order_invoice', {
+    invoiceNo: invoiceName,
+    table: table || undefined,
+  }) as Promise<TableOrder>;
+}
 
 export interface SyncOrderRequest {
   table?: string;

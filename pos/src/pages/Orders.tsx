@@ -224,42 +224,16 @@ export default function Orders() {
     if (!selectedOrder) return;
     setEditLoading(true);
     try {
-      const res = await fetch(`/api/method/frappe.client.get?doctype=POS+Invoice&name=${selectedOrder.name}`);
-      if (!res.ok) throw new Error('Failed to fetch order details');
-      const data = await res.json();
-      const order = data.message;
-      // Fill POS store
-      posStore.resetOrderState();
-      posStore.setSelectedOrderType(order.order_type);
-      posStore.setOrderForUpdate(order.name);
-      if (order.restaurant_table) {
-        posStore.setSelectedTable(order.restaurant_table, order.custom_restaurant_room || null,true);
+      const opened = await posStore.openOrderForEdit(selectedOrder.name, selectedOrder.restaurant_table);
+      if (!opened) {
+        showToast.error(t('errors.failed_edit_order'));
+        return;
       }
-      posStore.setSelectedCustomer({ id: order.customer, name: order.customer_name, phone: order.mobile_number });
-      // Fill cart
-      const items = (order.items || []).map((item: any) => ({
-        id: item.item_code,
-        name: item.item_name,
-        price: item.rate,
-        quantity: item.qty,
-        amount: item.amount,
-        image: item.image || null,
-        uniqueId: item.name,
-        item: item.item_code,
-        item_name: item.item_name,
-        item_image: null,
-        course: '',
-        description: item.description || '',
-        special_dish: 0,
-        tax_rate: 0,
-      }));
-      for (const cartItem of items) {
-        await posStore.addToOrder(cartItem);
-      }
-      // Redirect to POS page
       navigate('/register');
     } catch (err) {
-      showToast.error(err instanceof Error ? err.message : t('errors.failed_edit_order'));
+      showToast.error(
+        parseFrappeError(err) || (err instanceof Error ? err.message : t('errors.failed_edit_order'))
+      );
     } finally {
       setEditLoading(false);
     }

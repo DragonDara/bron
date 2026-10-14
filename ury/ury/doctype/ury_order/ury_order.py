@@ -2561,6 +2561,9 @@ def cancel_order(invoice_id, reason):
                 frappe.PermissionError,
             )
 
+    if pos_invoice.docstatus == 2:
+        frappe.throw(_("Invoice {0} is already cancelled.").format(invoice_id))
+
     # Release the full merge cluster, not only the primary table and CSV partners.
     if pos_invoice.restaurant_table:
         release_merge_cluster_tables(pos_invoice.restaurant_table)
@@ -2606,18 +2609,22 @@ def cancel_order(invoice_id, reason):
             message=f"Failed to send fraud alert for invoice {invoice_id}: {str(e)}"
         )
 
-    # Ensure invoice is not already cancelled
-    if pos_invoice.docstatus == 2:
-        frappe.throw(_("Invoice {0} is already cancelled.").format(invoice_id))
-
-    # Draft invoice: submit first so it can follow standard document lifecycle cancellation
-    if pos_invoice.docstatus == 0:
-        pos_invoice.flags.ignore_mandatory = True
-        pos_invoice.submit()
-
-    # Cancel through standard document workflow so on_cancel hooks run and docstatus=2 is set
-    pos_invoice.cancel()
-    pos_invoice.db_set("cancel_reason", reason)
+    if pos_invoice.docstatus == 1:
+        # Cancel through standard document workflow so on_cancel hooks run and docstatus=2 is set
+        pos_invoice.cancel()
+        pos_invoice.db_set("cancel_reason", reason)
+    else:
+        # A draft order is unpaid, so it cannot go through submit() -> cancel():
+        # POS Invoice validation rejects submitting it as a partial payment.
+        for table_field in pos_invoice.meta.get_table_fields():
+            frappe.db.set_value(
+                table_field.options,
+                {"parent": pos_invoice.name, "parenttype": "POS Invoice"},
+                "docstatus",
+                2,
+                update_modified=False,
+            )
+        pos_invoice.db_set({"docstatus": 2, "status": "Cancelled", "cancel_reason": reason})
 
 # Roles permitted to authorize an additional discount when settling an order.
 DISCOUNT_ALLOWED_ROLES = frozenset(

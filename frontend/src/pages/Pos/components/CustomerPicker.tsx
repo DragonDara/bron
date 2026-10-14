@@ -167,15 +167,17 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
   const [prefillPhone, setPrefillPhone] = useState('');
 
   useEffect(() => {
-    if (!isOpen || !searchTerm.trim()) {
+    if (!isOpen) {
       setSearchResults([]);
       setSearchError(null);
       setIsSearching(false);
       return;
     }
+    const term = searchTerm.trim();
     setIsSearching(true);
+    setSearchError(null);
     const handler = setTimeout(() => {
-      searchCustomers(searchTerm)
+      searchCustomers(term, term ? 5 : 10)
         .then((results) => {
           setSearchResults(results);
           setIsSearching(false);
@@ -184,7 +186,7 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
           setSearchError(t('customer.failed_search'));
           setIsSearching(false);
         });
-    }, 300);
+    }, term ? 300 : 0);
     return () => clearTimeout(handler);
   }, [searchTerm, isOpen]);
 

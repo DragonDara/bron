@@ -17,13 +17,14 @@ vi.mock('../lib/customer-api', () => ({
   getCustomerGroups: vi.fn(),
   getCustomerTerritories: vi.fn(),
 }));
-vi.mock('../lib/order-api', () => ({ getTableOrder: vi.fn() }));
+vi.mock('../lib/order-api', () => ({ getTableOrder: vi.fn(), getOrderForEdit: vi.fn() }));
 vi.mock('../lib/payment-api', () => ({ getPaymentModes: vi.fn() }));
 
 import { usePOSStore, type OrderItem } from './pos-store';
 import { getRestaurantMenu } from '../lib/menu-api';
 import { getMenuCourses } from '../lib/menu-course-api';
 import { getCombinedPosProfile, getCurrencyInfo } from '../lib/pos-profile-api';
+import { getOrderForEdit, type POSInvoice } from '../lib/order-api';
 import { getCurrencySymbol, setCurrency } from '@ury/core';
 
 const menuRow = (item: string, rate: number) => ({
@@ -132,5 +133,110 @@ describe('usePOSStore customer-priced menu', () => {
     expect(usePOSStore.getState().menuItems[0].price).toBe(500);
     expect(usePOSStore.getState().menuCustomer).toBe('CompanyName');
     expect(usePOSStore.getState().menuLoading).toBe(false);
+  });
+});
+
+const invoiceRow = (name: string, itemCode: string, qty: number, comment: string, key: string | null) => ({
+  name,
+  item_code: itemCode,
+  item_name: itemCode,
+  description: '',
+  item_group: 'Food',
+  image: '',
+  qty,
+  comment,
+  reservation_line_key: key,
+  rate: 500,
+  amount: 500 * qty,
+  discount_percentage: 0,
+  discount_amount: 0,
+});
+
+const openInvoice = (overrides: Partial<POSInvoice> = {}) =>
+  ({
+    name: 'INV-0038',
+    customer: 'CUST-1',
+    customer_name: 'Walk-in',
+    mobile_number: '+7700',
+    order_type: 'Dine In',
+    restaurant_table: 'Table 5',
+    custom_restaurant_room: 'Hall',
+    custom_waiter_employee: 'EMP-7',
+    no_of_pax: 4,
+    custom_comments: 'Birthday',
+    modified: '2026-10-14 01:15:42.123456',
+    items: [
+      invoiceRow('row-1', 'Burger', 2, 'no onion', 'key-burger-1'),
+      invoiceRow('row-2', 'Burger', 1, 'spicy', 'key-burger-2'),
+    ],
+    ...overrides,
+  }) as POSInvoice;
+
+describe('usePOSStore.openOrderForEdit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(getRestaurantMenu).mockResolvedValue([]);
+    usePOSStore.setState({
+      posProfile: { name: 'POS-1', restaurant: 'R-1' } as never,
+      selectedCustomer: null,
+      menuCustomer: null,
+      activeOrders: [],
+      isUpdatingOrder: false,
+      orderId: null,
+      lastModifiedTime: null,
+    });
+  });
+
+  it('loads the order with the same state as the table path, including the stale-write stamp', async () => {
+    vi.mocked(getOrderForEdit).mockResolvedValue({ message: openInvoice() });
+
+    const opened = await usePOSStore.getState().openOrderForEdit('INV-0038', 'Table 5');
+
+    expect(opened).toBe(true);
+    expect(getOrderForEdit).toHaveBeenCalledWith('INV-0038', 'Table 5');
+    const state = usePOSStore.getState();
+    expect(state.isUpdatingOrder).toBe(true);
+    expect(state.orderId).toBe('INV-0038');
+    expect(state.lastModifiedTime).toBe('2026-10-14 01:15:42.123456');
+    expect(state.noOfPax).toBe(4);
+    expect(state.selectedPerformer).toBe('EMP-7');
+    expect(state.orderComment).toBe('Birthday');
+    expect(state.selectedOrderType).toBe('Dine In');
+    expect(state.selectedTable).toBe('Table 5');
+    expect(state.selectedRoom).toBe('Hall');
+    expect(state.selectedCustomer).toEqual({ id: 'CUST-1', name: 'Walk-in', phone: '+7700' });
+  });
+
+  it('keeps each saved line separate with its persisted key, comment and row name', async () => {
+    vi.mocked(getOrderForEdit).mockResolvedValue({ message: openInvoice() });
+
+    await usePOSStore.getState().openOrderForEdit('INV-0038', 'Table 5');
+
+    const lines = usePOSStore.getState().activeOrders;
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => [line.quantity, line.comment, line.reservationLineKey, line.invoiceItemName])).toEqual([
+      [2, 'no onion', 'key-burger-1', 'row-1'],
+      [1, 'spicy', 'key-burger-2', 'row-2'],
+    ]);
+  });
+
+  it('does not touch the cart when the order is no longer open', async () => {
+    vi.mocked(getOrderForEdit).mockResolvedValue({ message: openInvoice({ name: undefined as never, items: [] }) });
+    usePOSStore.setState({ activeOrders: [cartLine('Tea', 120)], orderId: 'INV-OTHER', isUpdatingOrder: true });
+
+    const opened = await usePOSStore.getState().openOrderForEdit('INV-0038', 'Table 5');
+
+    expect(opened).toBe(false);
+    expect(usePOSStore.getState().activeOrders).toHaveLength(1);
+    expect(usePOSStore.getState().orderId).toBe('INV-OTHER');
+  });
+
+  it('propagates load errors instead of treating them as an empty order', async () => {
+    vi.mocked(getOrderForEdit).mockRejectedValue(new Error('Not permitted to view this order'));
+
+    await expect(usePOSStore.getState().openOrderForEdit('INV-0038', null)).rejects.toThrow(
+      'Not permitted to view this order'
+    );
   });
 });
