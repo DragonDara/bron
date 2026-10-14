@@ -205,6 +205,26 @@ describe('CustomerPicker', () => {
     }, { timeout: 1500 });
   });
 
+  it('loads latest customers before typing', async () => {
+    mockSearchCustomers.mockResolvedValueOnce([
+      { name: 'CUST-001', content: 'Customer Name : John Doe | Mobile Number : 9876543210' },
+    ]);
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByPlaceholderText('customer.search_placeholder'));
+
+    await waitFor(() => {
+      expect(screen.getByText('John Doe')).toBeTruthy();
+    }, { timeout: 1500 });
+    expect(mockSearchCustomers).toHaveBeenCalledWith('', 10);
+  });
+
   it('disables search input when disabled prop is true', () => {
     render(
       <CustomerPicker

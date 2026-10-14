@@ -7,7 +7,6 @@ import './index.css'
 import App from './App.tsx'
 import russianTranslations from './i18n/ru.json'
 import { resolveManagementLanguage } from './i18n/language'
-import { LanguageSwitcher } from './i18n/LanguageSwitcher'
 
 const language = resolveManagementLanguage()
 document.documentElement.lang = language
@@ -20,7 +19,6 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter basename="/ury">
       <App />
       <ToastProvider />
-      <LanguageSwitcher />
     </BrowserRouter>
   </StrictMode>,
 )

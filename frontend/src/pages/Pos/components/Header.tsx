@@ -14,6 +14,7 @@ import { usePOSStore } from '../store/pos-store';
 import type { RootState } from '../store/root-store';
 import { logout } from '@ury/core';
 import { showToast } from '@ury/ui';
+import { LanguageSwitcher } from '../../../i18n/LanguageSwitcher';
 
 const Header = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -170,6 +171,9 @@ const Header = () => {
                 <div className="p-4 border-b border-hair">
                   <p className="text-xs font-medium text-foreground">{user?.full_name || 'User'}</p>
                   <p className="text-xs text-text-tertiary">{user?.name || ''}</p>
+                </div>
+                <div className="border-b border-hair">
+                  <LanguageSwitcher inline />
                 </div>
                 <div className="py-2">
                   <Button

@@ -41,6 +41,15 @@ describe("CustomerPicker", () => {
     await waitFor(() => { expect(searchCustomersMock).toHaveBeenCalled(); });
   });
 
+  it("shows latest customers on focus before typing", async () => {
+    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    const user = userEvent.setup();
+    render(<CustomerPicker value={null} onChange={vi.fn()} />);
+    await user.click(screen.getByPlaceholderText("customer.search_placeholder"));
+    await waitFor(() => { expect(screen.getByText("John Doe")).toBeInTheDocument(); });
+    expect(searchCustomersMock).toHaveBeenCalledWith("", 10);
+  });
+
   it("disables input when disabled prop is true", () => {
     render(<CustomerPicker value={null} onChange={vi.fn()} disabled={true} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
