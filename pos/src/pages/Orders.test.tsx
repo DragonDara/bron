@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { showToast } from "@ury/ui";
 import Orders from "./Orders";
 
 // Mock UI components first
@@ -57,6 +58,7 @@ vi.mock("../store/root-store", () => ({
 
 const mockPosStore = {
   posProfile: { name: "POS-001" },
+  openOrderForEdit: vi.fn(),
 };
 
 vi.mock("../store/pos-store", () => ({
@@ -195,6 +197,48 @@ describe("Orders Page", () => {
     render(<Orders />);
 
     expect(screen.getByText(/order.select_to_view/i)).toBeInTheDocument();
+  });
+
+  describe("edit order", () => {
+    const draftOrder = {
+      name: "INV-0038",
+      status: "Draft",
+      restaurant_table: "Table 5",
+      invoice_printed: 0,
+      customer: "CUST-1",
+      posting_date: "2026-10-14",
+      posting_time: "01:15:00",
+      grand_total: 7348,
+      rounded_total: 7348,
+    };
+
+    beforeEach(() => {
+      mockRootStoreState.selectedOrder = draftOrder as never;
+    });
+
+    afterEach(() => {
+      mockRootStoreState.selectedOrder = null;
+    });
+
+    it("opens the order through the store and goes to the register", async () => {
+      mockPosStore.openOrderForEdit.mockResolvedValue(true);
+      render(<Orders />);
+
+      fireEvent.click(screen.getByLabelText("Edit order"));
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/register"));
+      expect(mockPosStore.openOrderForEdit).toHaveBeenCalledWith("INV-0038", "Table 5");
+    });
+
+    it("stays on the page when the order is no longer open", async () => {
+      mockPosStore.openOrderForEdit.mockResolvedValue(false);
+      render(<Orders />);
+
+      fireEvent.click(screen.getByLabelText("Edit order"));
+
+      await waitFor(() => expect(showToast.error).toHaveBeenCalledWith("errors.failed_edit_order"));
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
   });
 
   it("displays pagination controls", () => {

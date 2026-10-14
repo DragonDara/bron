@@ -231,26 +231,59 @@ class TestURYOrder(FrappeTestCase):
 
         mock_invoice.cancel.assert_not_called()
 
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.db.set_value")
     @patch("ury.ury.doctype.ury_order.ury_order.release_order_reservations")
     @patch("ury.ury.doctype.ury_order.ury_order.cancel_kot")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_doc")
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
-    def test_cancel_order_draft_uses_lifecycle_methods(
-        self, mock_has_permission, mock_get_doc, mock_cancel_kot, mock_release
+    def test_cancel_order_draft_does_not_submit_unpaid_invoice(
+        self, mock_has_permission, mock_get_doc, mock_cancel_kot, mock_release, mock_set_value
     ):
         mock_invoice = MagicMock()
         mock_invoice.name = "POS-INV-DRAFT"
         mock_invoice.branch = "Test Branch"
         mock_invoice.restaurant_table = None
         mock_invoice.docstatus = 0
+        mock_invoice.meta.get_table_fields.return_value = [
+            frappe._dict(fieldname="items", options="POS Invoice Item")
+        ]
         mock_get_doc.return_value = mock_invoice
         mock_has_permission.return_value = True
 
         cancel_order("POS-INV-DRAFT", "draft cancellation")
 
-        mock_invoice.submit.assert_called_once()
-        mock_invoice.cancel.assert_called_once()
-        mock_invoice.db_set.assert_called_once_with("cancel_reason", "draft cancellation")
+        mock_invoice.submit.assert_not_called()
+        mock_invoice.cancel.assert_not_called()
+        mock_set_value.assert_called_once_with(
+            "POS Invoice Item",
+            {"parent": "POS-INV-DRAFT", "parenttype": "POS Invoice"},
+            "docstatus",
+            2,
+            update_modified=False,
+        )
+        mock_invoice.db_set.assert_called_once_with(
+            {"docstatus": 2, "status": "Cancelled", "cancel_reason": "draft cancellation"}
+        )
+
+    @patch("ury.ury.doctype.ury_order.ury_order.cancel_kot")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.get_doc")
+    @patch("ury.ury.doctype.ury_order.ury_order.frappe.has_permission")
+    def test_cancel_order_already_cancelled_makes_no_changes(
+        self, mock_has_permission, mock_get_doc, mock_cancel_kot
+    ):
+        mock_invoice = MagicMock()
+        mock_invoice.name = "POS-INV-DONE"
+        mock_invoice.branch = "Test Branch"
+        mock_invoice.restaurant_table = None
+        mock_invoice.docstatus = 2
+        mock_get_doc.return_value = mock_invoice
+        mock_has_permission.return_value = True
+
+        with self.assertRaises(frappe.ValidationError):
+            cancel_order("POS-INV-DONE", "again")
+
+        mock_cancel_kot.assert_not_called()
+        mock_invoice.cancel.assert_not_called()
 
     @patch("ury.ury.doctype.ury_order.ury_order.frappe.cache")
     @patch("ury.ury.doctype.ury_order.ury_order.get_order_invoice")

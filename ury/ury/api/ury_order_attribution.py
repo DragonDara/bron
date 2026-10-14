@@ -59,9 +59,7 @@ def _validate_employee(employee, branch):
 		frappe.throw(_("Employee {0} is not active.").format(row.employee_name or employee))
 	if branch and row.branch != branch:
 		frappe.throw(
-			_("Employee {0} is not assigned to branch {1}.").format(
-				row.employee_name or employee, branch
-			)
+			_("Employee {0} is not assigned to branch {1}.").format(row.employee_name or employee, branch)
 		)
 	return row
 
@@ -78,6 +76,9 @@ def resolve_order_performer(pos_profile, branch, employee, existing=None):
 	if not employee:
 		if enabled and profile.get("custom_require_performer_on_order") and not existing:
 			frappe.throw(_("Select the employee this order is for."))
+		return None
+
+	if existing and employee == existing:
 		return None
 
 	if not enabled:
@@ -170,9 +171,7 @@ def resolve_credit_account(pos_profile, branch, credit_account, amount=0):
 	profile = _profile(pos_profile)
 
 	if not profile.get("custom_enable_credit_settlement"):
-		frappe.throw(
-			_("Credit settlement is not enabled for this POS Profile."), frappe.PermissionError
-		)
+		frappe.throw(_("Credit settlement is not enabled for this POS Profile."), frappe.PermissionError)
 	if not profile.get("custom_credit_mode_of_payment"):
 		frappe.throw(_("Set a Credit Mode Of Payment on POS Profile {0}.").format(profile.name))
 
@@ -185,7 +184,17 @@ def resolve_credit_account(pos_profile, branch, credit_account, amount=0):
 	account = frappe.db.get_value(
 		"URY Credit Account",
 		credit_account,
-		["name", "enabled", "party_type", "party", "customer", "branch", "credit_limit", "valid_from", "valid_to"],
+		[
+			"name",
+			"enabled",
+			"party_type",
+			"party",
+			"customer",
+			"branch",
+			"credit_limit",
+			"valid_from",
+			"valid_to",
+		],
 		as_dict=True,
 	)
 	if not account:
