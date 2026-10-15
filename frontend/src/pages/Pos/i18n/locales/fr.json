@@ -333,6 +333,16 @@
     "consolidated": "Consolidé",
     "return": "Retour"
   },
+  "pos_closing": {
+    "report_print_failed_title": "Session clôturée, rapport non imprimé",
+    "report_print_failed_description": "La session est clôturée. Vérifiez l'imprimante et réessayez, ou continuez et réimprimez le rapport de session plus tard.",
+    "report_print_failed": "Impossible d'imprimer le rapport de session.",
+    "report_missing": "La session est clôturée, mais son rapport n'a pas été créé. Demandez à un administrateur de consulter l'Error Log.",
+    "report_print_again": "Imprimer à nouveau",
+    "report_printing": "Impression...",
+    "report_continue": "Continuer",
+    "report_popup_blocked": "Le navigateur a bloqué la fenêtre d'impression. Autorisez les fenêtres pop-up pour ce site et relancez l'impression."
+  },
   "settings": {
     "title": "Paramètres",
     "coming_soon": "D'autres paramètres arrivent bientôt.",
@@ -346,7 +356,8 @@
     "confirm_cancel": "Annuler",
     "closed_title": "Session clôturée",
     "closed_description": "Votre session POS a été clôturée avec succès.",
-    "back_to_dashboard": "Retour au tableau de bord"
+    "back_to_dashboard": "Retour au tableau de bord",
+    "print_shift_report": "Imprimer le rapport de session"
   },
   "pos_opening": {
     "title": "Ouvrir le PDV",

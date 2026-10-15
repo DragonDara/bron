@@ -64,7 +64,12 @@ vi.mock("../lib/shift-report-api", () => ({
   getShiftReportPrintInfo: vi.fn().mockResolvedValue({ report: null, print_format: "", auto_print: 0 }),
 }));
 
+const { MockPrintPopupBlockedError } = vi.hoisted(() => ({
+  MockPrintPopupBlockedError: class extends Error {},
+}));
+
 vi.mock("../lib/print", () => ({
+  PrintPopupBlockedError: MockPrintPopupBlockedError,
   printShiftReport: vi.fn(),
 }));
 
@@ -222,6 +227,32 @@ describe("POSClosingDialog shift report printing", () => {
     });
   });
 
+  it("hands the closing to the parent once the checklist is done", async () => {
+    const onClosingSubmitted = vi.fn();
+    render(<POSClosingDialog {...defaultProps} onClosingSubmitted={onClosingSubmitted} />);
+    const user = await closeShift();
+
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: "PCE-001" })
+    );
+  });
+
+  it("explains a blocked print pop-up and prints on retry", async () => {
+    vi.mocked(printApi.printShiftReport).mockRejectedValueOnce(new MockPrintPopupBlockedError());
+    render(<POSClosingDialog {...defaultProps} />);
+    const user = await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_popup_blocked")).toBeInTheDocument();
+
+    // The retry is a real click, which browsers let open a pop-up.
+    await user.click(screen.getByRole("button", { name: "pos_closing.report_print_again" }));
+
+    expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
+    expect(printApi.printShiftReport).toHaveBeenCalledTimes(2);
+  });
+
   it("does not print when auto print is off", async () => {
     vi.mocked(shiftReportApi.getShiftReportPrintInfo).mockResolvedValue({ ...printInfo, auto_print: 0 });
     render(<POSClosingDialog {...defaultProps} />);
@@ -262,12 +293,19 @@ describe("POSClosingDialog shift report printing", () => {
   it("never prints a shift report for a Sub POS Closing", async () => {
     mockPosProfile.multiple_cashier = 1;
     mockPosProfile.owner = "main_cashier";
-    render(<POSClosingDialog {...defaultProps} />);
-    await closeShift();
+    const onClosingSubmitted = vi.fn();
+    render(<POSClosingDialog {...defaultProps} onClosingSubmitted={onClosingSubmitted} />);
+    const user = await closeShift();
 
     expect(await screen.findByTestId("checklist-gate-dialog")).toBeInTheDocument();
     expect(posClosingApi.submitSubPosClosing).toHaveBeenCalled();
     expect(shiftReportApi.getShiftReportPrintInfo).not.toHaveBeenCalled();
     expect(printApi.printShiftReport).not.toHaveBeenCalled();
+
+    // No POS Closing Entry, so nothing for the parent to reprint.
+    await user.click(screen.getByRole("button", { name: "Complete" }));
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: null })
+    );
   });
 });

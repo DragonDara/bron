@@ -46,7 +46,12 @@ vi.mock("../lib/shift-report-api", () => ({
   getShiftReportPrintInfo: (...args: unknown[]) => getShiftReportPrintInfoMock(...args),
 }));
 
+const { MockPrintPopupBlockedError } = vi.hoisted(() => ({
+  MockPrintPopupBlockedError: class extends Error {},
+}));
+
 vi.mock("../lib/print", () => ({
+  PrintPopupBlockedError: MockPrintPopupBlockedError,
   printShiftReport: (...args: unknown[]) => printShiftReportMock(...args),
 }));
 
@@ -368,7 +373,10 @@ describe("POSClosingDialog shift report printing", () => {
 
     await closeShift();
 
-    await waitFor(() => expect(onClosingSubmitted).toHaveBeenCalled());
+    // The parent gets the closing, so it can offer a reprint later.
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: "POS-CLO-1" })
+    );
     expect(getShiftReportPrintInfoMock).toHaveBeenCalledWith("POS-CLO-1");
     expect(printShiftReportMock).toHaveBeenCalledTimes(1);
     expect(printShiftReportMock).toHaveBeenCalledWith({
@@ -413,6 +421,27 @@ describe("POSClosingDialog shift report printing", () => {
     expect(submitPosClosingEntryMock).toHaveBeenCalledTimes(1);
   });
 
+  it("explains a blocked print pop-up and prints on retry", async () => {
+    printShiftReportMock.mockRejectedValueOnce(new MockPrintPopupBlockedError());
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_popup_blocked")).toBeInTheDocument();
+    expect(onClosingSubmitted).not.toHaveBeenCalled();
+
+    // The retry is a real click, which browsers let open a pop-up.
+    await userEvent.click(screen.getByRole("button", { name: "pos_closing.report_print_again" }));
+
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: "POS-CLO-1" })
+    );
+    expect(printShiftReportMock).toHaveBeenCalledTimes(2);
+  });
+
   it("can continue without the printout", async () => {
     printShiftReportMock.mockRejectedValue(new Error("Printer offline"));
     const onClosingSubmitted = vi.fn();
@@ -452,7 +481,10 @@ describe("POSClosingDialog shift report printing", () => {
     await closeShift();
 
     await waitFor(() => expect(submitSubPosClosingMock).toHaveBeenCalled());
-    await waitFor(() => expect(onClosingSubmitted).toHaveBeenCalled());
+    // No POS Closing Entry, so nothing for the parent to reprint.
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: null })
+    );
     expect(getShiftReportPrintInfoMock).not.toHaveBeenCalled();
     expect(printShiftReportMock).not.toHaveBeenCalled();
     mockPosProfile.multiple_cashier = 0;

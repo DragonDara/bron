@@ -202,7 +202,8 @@
     "report_missing": "Ауысым жабылды, бірақ оның есебі жасалмады. Әкімшіден Error Log тексеруін сұраңыз.",
     "report_print_again": "Қайта басып шығару",
     "report_printing": "Басып шығарылуда...",
-    "report_continue": "Жалғастыру"
+    "report_continue": "Жалғастыру",
+    "report_popup_blocked": "Браузер басып шығару терезесін бұғаттады. Осы сайт үшін қалқымалы терезелерге рұқсат беріп, қайта басып шығарыңыз."
   },
   "checklist": {
     "title_opening": "Ашу тексеру парағы",
@@ -471,7 +472,8 @@
     "confirm_cancel": "Бас тарту",
     "closed_title": "Сеанс жабылды",
     "closed_description": "POS сеансы сәтті жабылды.",
-    "back_to_dashboard": "Тақтаға оралу"
+    "back_to_dashboard": "Тақтаға оралу",
+    "print_shift_report": "Ауысым есебін басып шығару"
   },
   "pos_opening": {
     "title": "POS ауысымын ашу",

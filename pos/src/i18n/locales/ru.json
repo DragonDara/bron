@@ -202,7 +202,8 @@
     "report_missing": "Смена закрыта, но отчёт не был создан. Попросите администратора проверить Error Log.",
     "report_print_again": "Печать повторно",
     "report_printing": "Печать...",
-    "report_continue": "Продолжить"
+    "report_continue": "Продолжить",
+    "report_popup_blocked": "Браузер заблокировал окно печати. Разрешите всплывающие окна для этого сайта и повторите печать."
   },
   "checklist": {
     "title_opening": "Контрольный список открытия",
@@ -471,7 +472,8 @@
     "confirm_cancel": "Отмена",
     "closed_title": "Сессия закрыта",
     "closed_description": "POS-сессия успешно закрыта.",
-    "back_to_dashboard": "Назад на панель"
+    "back_to_dashboard": "Назад на панель",
+    "print_shift_report": "Печать отчёта смены"
   },
   "pos_opening": {
     "title": "Открытие смены POS",

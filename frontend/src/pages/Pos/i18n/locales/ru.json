@@ -204,7 +204,8 @@
     "report_missing": "Смена закрыта, но отчёт не был создан. Попросите администратора проверить Error Log.",
     "report_print_again": "Печать повторно",
     "report_printing": "Печать...",
-    "report_continue": "Продолжить"
+    "report_continue": "Продолжить",
+    "report_popup_blocked": "Браузер заблокировал окно печати. Разрешите всплывающие окна для этого сайта и повторите печать."
   },
   "checklist": {
     "title_opening": "Контрольный список открытия",
@@ -473,6 +474,7 @@
     "confirm_cancel": "Отмена",
     "closed_title": "Смена закрыта",
     "closed_description": "Кассовая смена успешно закрыта.",
-    "back_to_dashboard": "Вернуться на главную"
+    "back_to_dashboard": "Вернуться на главную",
+    "print_shift_report": "Печать отчёта смены"
   }
 }

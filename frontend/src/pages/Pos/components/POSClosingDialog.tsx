@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import { useRootStore } from '../store/root-store';
 import ClosingPaymentTable from './ClosingPaymentTable';
 import ChecklistGateDialog from './ChecklistGateDialog';
 import { getChecklist } from '../../../lib/pos/checklist-api';
-import { printShiftReport } from '../lib/print';
+import { PrintPopupBlockedError, printShiftReport } from '../lib/print';
 import { getShiftReportPrintInfo } from '../lib/shift-report-api';
 import {
   getOpenPosOpeningEntries,
@@ -40,7 +40,12 @@ interface POSClosingDialogProps {
    * the cashier clears the Closing checklist (post successful POS close
    * submission), right before the dialog itself closes.
    */
-  onClosingSubmitted?: () => void | Promise<void>;
+  onClosingSubmitted?: (result: ClosingSubmittedResult) => void | Promise<void>;
+}
+
+export interface ClosingSubmittedResult {
+  /** The submitted POS Closing Entry; null for a Sub POS Closing, which has no shift report. */
+  posClosingEntry: string | null;
 }
 
 interface OpeningBalanceDetail {
@@ -195,6 +200,10 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
   // printed. The close itself is final at that point, so this only offers a
   // retry (or continuing without the printout) -- never a resubmit.
   const [reportPrint, setReportPrint] = useState<{ closing: string; error: string } | null>(null);
+  // The submitted POS Closing Entry, handed to onClosingSubmitted so the
+  // parent can offer a reprint. A ref, because the post-close steps run in
+  // the same tick as the submit (state would still be stale there).
+  const closedEntryRef = useRef<string | null>(null);
   const [isPrintingReport, setIsPrintingReport] = useState(false);
 
   const loadClosingDetails = useCallback(async () => {
@@ -321,6 +330,7 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
           total_quantity: totals.totalQty,
         });
         await submitSubPosClosing(doc.name);
+        closedEntryRef.current = null;
       } else {
         const doc = await createPosClosingEntry({
           pos_profile: posProfile.name,
@@ -337,6 +347,7 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
           total_quantity: totals.totalQty,
         });
         await submitPosClosingEntry(doc.name);
+        closedEntryRef.current = doc.name;
 
         // Only a final POS Closing Entry has a shift report; Sub POS
         // Closing never prints one.
@@ -356,13 +367,16 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
     }
   };
 
+  const notifyClosingSubmitted = () =>
+    onClosingSubmitted?.({ posClosingEntry: closedEntryRef.current });
+
   // Close submission succeeded -- gate on the Closing checklist before
   // notifying the parent and dismissing the dialog.
   const finishClosing = async () => {
     if (posProfile?.name) {
       setShowClosingChecklist(true);
     } else {
-      await onClosingSubmitted?.();
+      await notifyClosingSubmitted();
       onOpenChange(false);
     }
   };
@@ -383,6 +397,7 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
       return null;
     } catch (error) {
       console.error('Failed to print shift report:', error);
+      if (error instanceof PrintPopupBlockedError) return t('pos_closing.report_popup_blocked');
       return extractServerErrorMessage(error, t('pos_closing.report_print_failed'));
     }
   };
@@ -415,7 +430,7 @@ const POSClosingDialog = ({ open, onOpenChange, onClosingSubmitted }: POSClosing
 
   const handleClosingChecklistComplete = async () => {
     setShowClosingChecklist(false);
-    await onClosingSubmitted?.();
+    await notifyClosingSubmitted();
     onOpenChange(false);
   };
 

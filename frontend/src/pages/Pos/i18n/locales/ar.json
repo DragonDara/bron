@@ -256,6 +256,16 @@
     "consolidated": "مجمع",
     "return": "مرتجع"
   },
+  "pos_closing": {
+    "report_print_failed_title": "تم إغلاق الوردية ولم تتم طباعة التقرير",
+    "report_print_failed_description": "تم إغلاق الوردية. تحقق من الطابعة وحاول مرة أخرى، أو تابع وأعد طباعة تقرير الوردية لاحقًا.",
+    "report_print_failed": "تعذرت طباعة تقرير الوردية.",
+    "report_missing": "تم إغلاق الوردية، لكن لم يتم إنشاء تقريرها. اطلب من المسؤول مراجعة سجل الأخطاء (Error Log).",
+    "report_print_again": "إعادة الطباعة",
+    "report_printing": "جارٍ الطباعة...",
+    "report_continue": "متابعة",
+    "report_popup_blocked": "حظر المتصفح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد محاولة الطباعة."
+  },
   "settings": {
     "title": "الإعدادات",
     "coming_soon": "المزيد من الإعدادات قريبًا.",
@@ -269,7 +279,8 @@
     "confirm_cancel": "إلغاء",
     "closed_title": "تم إغلاق الجلسة",
     "closed_description": "تم إغلاق جلسة نقاط البيع بنجاح.",
-    "back_to_dashboard": "العودة إلى لوحة التحكم"
+    "back_to_dashboard": "العودة إلى لوحة التحكم",
+    "print_shift_report": "طباعة تقرير الوردية"
   },
   "pos_opening": {
     "title": "فتح نقطة البيع",

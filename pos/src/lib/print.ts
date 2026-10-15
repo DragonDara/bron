@@ -46,6 +46,15 @@ export async function printOrder({ orderId, posProfile, printFormat }: PrintOrde
     return 'socket';
   }
 }
+
+/** The browser's pop-up blocker stopped the print tab from opening. */
+export class PrintPopupBlockedError extends Error {
+  constructor() {
+    super('The browser blocked the print window');
+    this.name = 'PrintPopupBlockedError';
+  }
+}
+
 interface PrintShiftReportParams {
   report: string;
   printFormat: string;
@@ -87,6 +96,13 @@ export async function printShiftReport({
     letterhead: 'No Letterhead',
     trigger_print: '1',
   });
-  window.open(`/printview?${params.toString()}`, '_blank', 'noopener,noreferrer');
+  // No 'noopener' here: with it window.open always returns null, so a tab
+  // stopped by the pop-up blocker would look like a successful print. The
+  // opener link is cut by hand instead.
+  const printWindow = window.open(`/printview?${params.toString()}`, '_blank');
+  if (!printWindow) {
+    throw new PrintPopupBlockedError();
+  }
+  printWindow.opener = null;
   return 'browser';
 }
