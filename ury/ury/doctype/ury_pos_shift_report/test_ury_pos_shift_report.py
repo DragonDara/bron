@@ -20,10 +20,12 @@ from ury.ury.api.ury_cash_shift_report import (
 	regenerate_shift_report,
 	shift_report_print_options,
 )
-from ury.ury.hooks.ury_pos_profile import validate_shift_report_print_format
+from ury.ury.hooks.ury_pos_profile import validate_print_formats
+from ury.ury.utils.print_format_scope import validate_print_format_doctype
 
 MODULE = "ury.ury.api.ury_cash_shift_report"
 REPORT_DOCTYPE_NAME = "URY POS Shift Report"
+SCOPE_MODULE = "ury.ury.utils.print_format_scope"
 CASH_ACCOUNT = "Cash - U"
 
 
@@ -249,23 +251,74 @@ class TestPosProfileSettings(FrappeTestCase):
 		)
 		self.assertEqual(self._options(settings), {"show_payment_modes": 0, "show_returns": 0})
 
+	def _db(self, profile_format=None):
+		"""get_value stub: the profile's stored format, and each Print Format's doc_type."""
+
+		def get_value(doctype, name, *args, **kwargs):
+			if doctype == "POS Profile":
+				return profile_format
+			return FORMAT_DOCTYPES.get(name)
+
+		return patch(f"{MODULE}.frappe.db.get_value", side_effect=get_value)
+
 	def test_print_format_falls_back_to_bundled_one(self):
-		with patch(f"{MODULE}.frappe.db.get_value", return_value=None):
+		with self._db(profile_format=None):
 			self.assertEqual(get_shift_report_print_format("Profile-1"), DEFAULT_PRINT_FORMAT)
 
 	def test_print_format_from_profile(self):
-		with patch(f"{MODULE}.frappe.db.get_value", return_value="My Z Report"):
+		with self._db(profile_format="My Z Report"):
 			self.assertEqual(get_shift_report_print_format("Profile-1"), "My Z Report")
 
-	def test_profile_rejects_receipt_format_for_shift_report(self):
-		profile = frappe._dict(custom_shift_report_print_format="POS Invoice Receipt")
-		with patch("ury.ury.hooks.ury_pos_profile.frappe.db.get_value", return_value="POS Invoice"):
-			self.assertRaises(frappe.ValidationError, validate_shift_report_print_format, profile)
+	def test_print_time_rejects_a_receipt_format_saved_on_the_profile(self):
+		# e.g. a profile saved before the save-time check existed
+		with self._db(profile_format="Receipt 80mm"):
+			self.assertRaises(frappe.ValidationError, get_shift_report_print_format, "Profile-1")
 
-	def test_profile_accepts_shift_report_format(self):
-		profile = frappe._dict(custom_shift_report_print_format=DEFAULT_PRINT_FORMAT)
-		with patch("ury.ury.hooks.ury_pos_profile.frappe.db.get_value", return_value="URY POS Shift Report"):
-			validate_shift_report_print_format(profile)  # must not raise
+
+# Print Format name -> its doc_type, for the stubs below.
+FORMAT_DOCTYPES = {
+	"Receipt 80mm": "POS Invoice",
+	DEFAULT_PRINT_FORMAT: REPORT_DOCTYPE_NAME,
+	"My Z Report": REPORT_DOCTYPE_NAME,
+	"Kitchen Slip": "URY KOT",
+}
+
+
+def _print_format_doctype(doctype, name, *args, **kwargs):
+	return FORMAT_DOCTYPES.get(name) if doctype == "Print Format" else None
+
+
+class TestPrintFormatScope(FrappeTestCase):
+	"""Customer receipts and shift reports must never use each other's layout."""
+
+	def _validate_profile(self, **fields):
+		with patch(f"{SCOPE_MODULE}.frappe.db.get_value", side_effect=_print_format_doctype):
+			validate_print_formats(frappe._dict(fields))
+
+	def test_profile_accepts_matching_formats(self):
+		self._validate_profile(
+			print_format="Receipt 80mm", custom_shift_report_print_format=DEFAULT_PRINT_FORMAT
+		)
+		self._validate_profile()  # both empty: defaults apply
+
+	def test_receipt_field_rejects_a_shift_report_format(self):
+		self.assertRaises(frappe.ValidationError, self._validate_profile, print_format=DEFAULT_PRINT_FORMAT)
+
+	def test_shift_report_field_rejects_a_receipt_format(self):
+		self.assertRaises(
+			frappe.ValidationError,
+			self._validate_profile,
+			custom_shift_report_print_format="Receipt 80mm",
+		)
+
+	def test_any_other_doctype_is_rejected_too(self):
+		self.assertRaises(frappe.ValidationError, self._validate_profile, print_format="Kitchen Slip")
+
+	def test_unknown_format_is_rejected(self):
+		with patch(f"{SCOPE_MODULE}.frappe.db.get_value", return_value=None):
+			self.assertRaises(
+				frappe.ValidationError, validate_print_format_doctype, "Deleted Format", "POS Invoice"
+			)
 
 
 class TestShiftReportPrintApi(FrappeTestCase):
@@ -282,6 +335,7 @@ class TestShiftReportPrintApi(FrappeTestCase):
 			"POS Closing Entry": "Profile-1",
 			REPORT_DOCTYPE_NAME: "POS-CLO-1",
 			"POS Profile": None,  # auto print / format never set on this profile
+			"Print Format": REPORT_DOCTYPE_NAME,  # the bundled format's doc_type
 		}
 		with (
 			patch(f"{MODULE}.frappe.has_permission", return_value=True) as has_permission,
@@ -294,7 +348,12 @@ class TestShiftReportPrintApi(FrappeTestCase):
 		self.assertEqual(checked, ["POS Closing Entry", REPORT_DOCTYPE_NAME])
 
 	def test_print_info_without_report(self):
-		values = {"POS Closing Entry": "Profile-1", REPORT_DOCTYPE_NAME: None, "POS Profile": 0}
+		values = {
+			"POS Closing Entry": "Profile-1",
+			REPORT_DOCTYPE_NAME: None,
+			"POS Profile": 0,
+			"Print Format": REPORT_DOCTYPE_NAME,
+		}
 		with (
 			patch(f"{MODULE}.frappe.has_permission", return_value=True),
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=self._values(values)),

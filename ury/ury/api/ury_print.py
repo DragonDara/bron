@@ -16,6 +16,8 @@ standard_format = "templates/print_formats/standard.html"
 
 from frappe.www.printview import validate_print_permission
 
+from ury.ury.utils.print_format_scope import validate_print_format_doctype
+
 
 @frappe.whitelist()
 def network_printing(
@@ -27,6 +29,9 @@ def network_printing(
     no_letterhead=0,
 ):
     validate_print_permission(frappe.get_doc(doctype, name))
+    # Raised outside the try below so a wrong layout is a real error, not a
+    # returned string -- e.g. a shift report format sent for a POS Invoice.
+    validate_print_format_doctype(print_format, doctype)
 
     try:
         print_settings = frappe.get_doc("Network Printer Settings", printer_setting)

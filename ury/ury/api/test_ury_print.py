@@ -99,6 +99,30 @@ class TestNetworkPrinting(FrappeTestCase):
 
 		self.assertIn("Failed to import cups", result)
 
+	@patch("ury.ury.api.ury_print.validate_print_permission")
+	@patch("ury.ury.api.ury_print.frappe.get_print")
+	@patch("ury.ury.api.ury_print.frappe.get_doc")
+	def test_network_printing_rejects_a_format_for_another_doctype(
+		self, mock_get_doc, mock_get_print, mock_validate_permission
+	):
+		"""A shift report layout must never print a customer receipt."""
+		with patch(
+			"ury.ury.utils.print_format_scope.frappe.db.get_value",
+			return_value="URY POS Shift Report",
+		):
+			self.assertRaises(
+				frappe.ValidationError,
+				network_printing,
+				"POS Invoice",
+				"INV-001",
+				"Printer-1",
+				"URY Cash Shift Report 80mm",
+			)
+
+		# Refused before the printer settings were even loaded.
+		mock_get_doc.assert_called_once_with("POS Invoice", "INV-001")
+		mock_get_print.assert_not_called()
+
 
 class TestSelectNetworkPrinter(FrappeTestCase):
 	@patch("ury.ury.api.ury_print.network_printing")

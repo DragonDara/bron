@@ -15,6 +15,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from ury.ury.utils.print_format_scope import validate_print_format_doctype
+
 REPORT_DOCTYPE = "URY POS Shift Report"
 DEFAULT_PRINT_FORMAT = "URY Cash Shift Report 80mm"
 SAVEPOINT = "ury_pos_shift_report"
@@ -254,11 +256,16 @@ def _enabled(value):
 
 def get_shift_report_print_format(pos_profile):
 	"""The profile's chosen shift report layout, else the bundled 80 mm one.
-	Never the profile's receipt `print_format`."""
-	return (
+
+	Never the profile's receipt `print_format`; checked again here at print
+	time, so a profile saved before that rule existed cannot slip through.
+	"""
+	print_format = (
 		frappe.db.get_value("POS Profile", pos_profile, "custom_shift_report_print_format")
 		or DEFAULT_PRINT_FORMAT
 	)
+	validate_print_format_doctype(print_format, REPORT_DOCTYPE, label=_("Shift Report Print Format"))
+	return print_format
 
 
 def _fetch_closing_invoices(closing):
