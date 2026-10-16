@@ -77,6 +77,32 @@ class TestServiceCharge(FrappeTestCase):
         self.assertEqual(doc["taxes"][0].custom_is_service_charge, 1)
         self.assertEqual(doc["taxes"][0].account_head, "Waiter Payable - TC")
 
+    def test_configured_percentage_is_applied_to_discounted_pre_tax_net(self):
+        doc = invoice(manual=20)
+        profile = self.profile()
+        profile.custom_service_charge_percentage = 12.5
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        employee = frappe._dict(status="Active", branch="Test Branch")
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+            f"{MODULE}.frappe.db.get_value",
+            side_effect=lambda doctype, *args, **kwargs: account if doctype == "Account" else employee,
+        ), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
+            result = prepare_invoice_billing(doc)
+        self.assertEqual(result["service_charge_percentage"], 12.5)
+        self.assertEqual(result["service_charge"], 10)
+        self.assertEqual(doc.grand_total, 90)
+
+    def test_configured_dine_in_only_type_must_match_order_type(self):
+        doc = invoice()
+        profile = self.profile()
+        profile.custom_service_charge_order_types = "Take Away"
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+            f"{MODULE}._apply_staff_policy", return_value={"reason": "no_applicable_policy"}
+        ):
+            result = prepare_invoice_billing(doc)
+        self.assertEqual(result["service_charge"], 0)
+        self.assertEqual(doc.grand_total, 100)
+
     def test_charge_requires_waiter_in_branch(self):
         doc = invoice(manual=20)
         doc.custom_waiter_employee = None
