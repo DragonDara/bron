@@ -170,10 +170,36 @@ describe('OrderPanel', () => {
     expect(screen.getByText('Rs. 6149')).toBeInTheDocument();
   });
 
+  it('quotes the service-inclusive total and submits when performer selection is disabled', async () => {
+    Object.assign(mockPOSStoreState.posProfile, {
+      custom_enable_service_charge: 1,
+      custom_service_charge_order_types: 'Dine In',
+      custom_enable_order_on_behalf: 0,
+      custom_require_performer_on_order: 1,
+    });
+    vi.mocked(getCartServiceChargeQuote).mockResolvedValueOnce({
+      subtotal: 250, manual_discount_amount: 0, tax_amount: 0,
+      service_charge: 25, service_charge_percentage: 10,
+      grand_total: 275, rounded_total: 275, currency: 'KZT', policy: {},
+    });
+
+    render(<OrderPanel />);
+
+    expect(await screen.findByText('Rs. 275')).toBeInTheDocument();
+    expect(screen.getByText('cart.service_charge')).toBeInTheDocument();
+    expect(screen.queryByText('errors.select_performer')).not.toBeInTheDocument();
+    expect(vi.mocked(getCartServiceChargeQuote).mock.calls[0][0]).not.toHaveProperty('performed_by');
+    await userEvent.click(screen.getByText('cart.add_new_order'));
+    await waitFor(() => expect(syncOrder).toHaveBeenCalledWith(expect.objectContaining({
+      performed_by: undefined,
+    })));
+  });
+
   it('prompts for the required performer without making failing quote requests', async () => {
     Object.assign(mockPOSStoreState.posProfile, {
       custom_enable_service_charge: 1,
       custom_service_charge_order_types: 'Dine In',
+      custom_enable_order_on_behalf: 1,
       custom_require_performer_on_order: 1,
     });
     const { rerender } = render(<OrderPanel />);
