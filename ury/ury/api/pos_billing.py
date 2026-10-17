@@ -156,7 +156,7 @@ def _apply_staff_policy(invoice, lock=False):
     }
 
 
-def _service_charge(invoice, profile):
+def _service_charge(invoice, profile, *, require_waiter=True):
     if not cint(profile.get("custom_enable_service_charge")):
         return 0
     if invoice.get("order_type") != "Dine In" or profile.get("custom_service_charge_order_types") != "Dine In":
@@ -172,9 +172,12 @@ def _service_charge(invoice, profile):
         frappe.throw(_("The waiter service account must be a liability ledger in the invoice company."))
 
     employee = invoice.get("custom_waiter_employee")
-    employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
-    if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
-        frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
+    # Profiles with performer selection disabled may collect an unassigned
+    # service charge. An employee already credited must still be valid.
+    if require_waiter and (employee or cint(profile.get("custom_enable_order_on_behalf"))):
+        employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
+        if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
+            frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
 
     # The first calculation applies any native manual invoice discount and tax.
     # The charge is based on the resulting pre-tax net total; appended last as
@@ -194,7 +197,7 @@ def _service_charge(invoice, profile):
     return amount
 
 
-def prepare_invoice_billing(invoice, lock=False):
+def prepare_invoice_billing(invoice, lock=False, *, require_waiter=True):
     """Recompute all URY adjustments from invoice and POS Profile documents."""
     profile = frappe.get_cached_doc("POS Profile", invoice.pos_profile)
     if profile.company != invoice.company or profile.get("branch") != invoice.get("branch"):
@@ -226,7 +229,7 @@ def prepare_invoice_billing(invoice, lock=False):
         if actual_discount > flt(policy["amount"]) + 0.005:
             frappe.throw(_("Staff discount exceeds its authorised limit after invoice recalculation."))
         invoice.custom_staff_discount_amount = policy["amount"] = actual_discount
-    charge = _service_charge(invoice, profile)
+    charge = _service_charge(invoice, profile, require_waiter=require_waiter)
     if charge:
         invoice.calculate_taxes_and_totals()
     return {"policy": policy, "service_charge": charge, "service_charge_percentage": flt(profile.get("custom_service_charge_percentage")) if charge else 0}
@@ -285,3 +288,165 @@ def get_invoice_billing_quote(invoice, manual_discount_percentage=None):
         quote["rounded_total"] += flt(merged.rounded_total) or flt(merged.grand_total)
         quote["merged_policy"] = merged_result["policy"]
     return quote
+
+
+@frappe.whitelist()
+def get_cart_service_charge_quote(items, pos_profile, order_type, customer=None, table=None, room=None, performed_by=None, invoice=None):
+    """Read-only server quote for the current, unsaved register cart.
+
+    The client sends item identities and quantities only. Prices, menu scope,
+    taxes, policy discounts, service charge, and currency rounding are resolved
+    with the same code used when the order is billed. No invoice is saved.
+    """
+    import json
+    import math
+
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Not permitted."), frappe.PermissionError)
+    if isinstance(items, str):
+        items = json.loads(items)
+    if not isinstance(items, list) or not items:
+        frappe.throw(_("Cart items are required."))
+    if order_type != "Dine In":
+        frappe.throw(_("Service-charge cart quotes are only available for Dine In orders."))
+
+    from ury.ury.doctype.ury_order.ury_order import (
+        _has_role,
+        _resolve_menu_for_sync,
+        _validate_sync_items_against_menu,
+        price_items_for_invoice,
+    )
+    from ury.ury_pos.api import getBranch
+
+    branch = getBranch()
+    profile = frappe.get_doc("POS Profile", pos_profile)
+    if profile.disabled or profile.branch != branch or profile.company != frappe.db.get_value("Branch", branch, "company"):
+        frappe.throw(_("Not permitted to quote this POS Profile."), frappe.PermissionError)
+    if _has_role(frappe.get_roles(), profile.get("role_restricted_for_table_order")):
+        frappe.throw(_("Not permitted to quote Dine In orders."), frappe.PermissionError)
+
+    if len(items) > 200:
+        frappe.throw(_("Cart has too many lines to quote."))
+    normalized = []
+    for row in items:
+        item_code = row.get("item") if isinstance(row, dict) else None
+        qty = flt(row.get("qty")) if isinstance(row, dict) else 0
+        if not isinstance(item_code, str) or not item_code or not math.isfinite(qty) or qty <= 0 or qty > 999:
+            frappe.throw(_("Cart contains an invalid item or quantity."))
+        normalized.append({"item": item_code, "qty": qty})
+
+    customer = customer or profile.customer
+    if not customer:
+        frappe.throw(_("Customer is required to quote the cart."))
+    frappe.get_doc("Customer", customer)
+
+    if table:
+        table_branch, table_room = frappe.db.get_value("URY Table", table, ["branch", "restaurant_room"]) or (None, None)
+        if table_branch != branch:
+            frappe.throw(_("Not permitted to quote a table outside your active branch."), frappe.PermissionError)
+        if room and table_room and room != table_room:
+            frappe.throw(_("Selected room does not match the table."), frappe.PermissionError)
+        roles = frappe.get_roles()
+        billing_user = _has_role(roles, profile.role_allowed_for_billing)
+        elevated_user = _has_role(roles, profile.transfer_role_permissions)
+        if table_room and not (billing_user or elevated_user):
+            from ury.ury_pos.api import getRoom
+
+            assigned_rooms = {entry.get("name") for entry in getRoom()}
+            if None not in assigned_rooms and table_room not in assigned_rooms:
+                frappe.throw(_("Not permitted to quote a table outside your assigned room."), frappe.PermissionError)
+
+    existing = None
+    if invoice:
+        from ury.ury.doctype.ury_order.ury_order import get_order_invoice
+
+        existing = get_order_invoice(table=table, invoiceNo=invoice, order_type=order_type)
+        if existing.name != invoice or cint(existing.docstatus) or existing.pos_profile != profile.name or existing.branch != branch:
+            frappe.throw(_("Not permitted to quote this invoice."), frappe.PermissionError)
+    invoice = frappe.get_doc(existing.as_dict()) if existing else frappe.new_doc("POS Invoice")
+    invoice.set("items", [])
+    invoice.is_pos = 1
+    invoice.pos_profile = profile.name
+    invoice.branch = branch
+    invoice.company = profile.company
+    invoice.customer = customer
+    invoice.order_type = order_type
+    invoice.restaurant_table = table
+    invoice.custom_restaurant_room = room
+    if profile.custom_enable_multiple_cashier:
+        from ury.ury.doctype.ury_order.ury_order import _resolve_sync_opening_room
+
+        opening_room = _resolve_sync_opening_room(table=table, room=room, invoice=invoice)
+        opened = frappe.db.sql(
+            """SELECT `tabPOS Opening Entry`.name
+               FROM `tabPOS Opening Entry`
+               INNER JOIN `tabMultiple Rooms`
+                 ON `tabMultiple Rooms`.parent = `tabPOS Opening Entry`.name
+               WHERE `tabPOS Opening Entry`.branch = %s
+                 AND `tabPOS Opening Entry`.status = 'Open'
+                 AND `tabPOS Opening Entry`.docstatus = 1
+                 AND `tabMultiple Rooms`.room = %s""",
+            (branch, opening_room or room),
+            as_dict=True,
+        )
+        opened_cashier = frappe.db.get_value("POS Opening Entry", opened[0].name, "user") if opened else None
+        main_cashier = next(
+            (row.user for row in profile.applicable_for_users if row.get("custom_main_cashier")), None
+        )
+        invoice.cashier = main_cashier if frappe.session.user == main_cashier else opened_cashier
+    else:
+        invoice.cashier = profile.applicable_for_users[0].user if profile.applicable_for_users else frappe.session.user
+    invoice.waiter = frappe.session.user
+    from ury.ury.api.ury_order_attribution import resolve_order_performer
+
+    invoice.custom_waiter_employee = (
+        resolve_order_performer(profile.name, branch, performed_by, existing=invoice.get("custom_waiter_employee"))
+        or invoice.get("custom_waiter_employee")
+    )
+    if not invoice.custom_waiter_employee:
+        from ury.ury.hooks.ury_pos_invoice import _employee_for_user
+
+        invoice.custom_waiter_employee = _employee_for_user(invoice.waiter)
+
+    restaurant = frappe.db.get_value("URY Restaurant", {"branch": branch}, "name")
+    if not restaurant:
+        frappe.throw(_("No restaurant is configured for this branch."))
+    invoice.restaurant = restaurant
+    menu = _resolve_menu_for_sync(branch, table=table, room=room, order_type=order_type)
+    from ury.ury.api.ury_customer_pricing import get_customer_price_menu
+    from ury.ury.doctype.ury_order.ury_order import get_menu_name, get_restaurant_and_menu_name
+
+    customer_menu, customer_price_list = get_customer_price_menu(customer, branch)
+    menu = customer_menu or menu
+    pricing_menu = get_restaurant_and_menu_name(table)[1] if table else get_menu_name(order_type)
+    price_list = customer_price_list or frappe.db.get_value(
+        "Price List", {"restaurant_menu": pricing_menu, "enabled": 1}
+    )
+    if not menu or not price_list:
+        frappe.throw(_("No active menu or price list is configured for this order."))
+
+    invoice.selling_price_list = price_list
+    if frappe.db.get_value("Branch", branch, "custom_no_taxes") != 1:
+        invoice.taxes_and_charges = frappe.db.get_value("URY Restaurant", restaurant, "default_tax_template")
+    _validate_sync_items_against_menu(
+        normalized, [], branch, table=table, room=room, order_type=order_type, menu=menu
+    )
+    for row in price_items_for_invoice(normalized, price_list, profile.name, branch, menu, default_performer=performed_by):
+        invoice.append("items", row)
+
+    invoice.set_missing_values()
+    invoice.calculate_taxes_and_totals()
+    # This unsaved preview creates no waiter payable. Saved invoices validate
+    # credited employees and the profile's performer requirement separately.
+    result = prepare_invoice_billing(invoice, require_waiter=False)
+    discounts = flt(invoice.get("custom_staff_discount_amount")) + flt(invoice.discount_amount)
+    return {
+        **result,
+        "subtotal": flt(invoice.net_total) + discounts,
+        "discount_amount": discounts,
+        "manual_discount_amount": flt(invoice.discount_amount),
+        "tax_amount": flt(invoice.total_taxes_and_charges) - flt(invoice.get("custom_service_charge_amount")),
+        "grand_total": flt(invoice.grand_total),
+        "rounded_total": flt(invoice.rounded_total) or flt(invoice.grand_total),
+        "currency": invoice.currency,
+    }

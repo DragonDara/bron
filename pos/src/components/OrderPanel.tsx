@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trash2, Edit, FrownIcon, Plus, Loader2, MessageSquare } from 'lucide-react';
 import { usePOSStore } from '../store/pos-store';
 import { cn } from '@ury/ui';
@@ -17,6 +17,7 @@ import { showToast } from '@ury/ui';
 import { DINE_IN } from '../data/order-types';
 import { t } from '../i18n';
 import { useCartAvailability, cartQtyForItem, remainingHeadroom } from '../lib/cart-capacity';
+import { getCartServiceChargeQuote, type BillingQuote } from '../lib/pos-billing-api';
 
 const OrderPanel = () => {
   const { 
@@ -48,6 +49,10 @@ const OrderPanel = () => {
   const [editingItem, setEditingItem] = useState<typeof activeOrders[0] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCommentDialog, setShowCommentDialog] = useState(false);
+  const [quoteResult, setQuoteResult] = useState<{
+    key: string; quote?: BillingQuote; error?: boolean;
+  } | null>(null);
+  const [quoteRetry, setQuoteRetry] = useState(0);
 
   // B04: real-time cart capacity headroom, keyed by item_code. Display-only
   // (see cart-capacity.ts docstring) -- sync_order remains the sole
@@ -68,6 +73,58 @@ const OrderPanel = () => {
     (sum, item) => sum + calculateItemTotal(item),
     0
   );
+
+  const serviceChargeApplies = Boolean(
+    Number(posProfile?.custom_enable_service_charge) === 1 &&
+    selectedOrderType === DINE_IN &&
+    posProfile?.custom_service_charge_order_types === DINE_IN
+  );
+
+  const quoteRequired = serviceChargeApplies && activeOrders.length > 0;
+  const needsPerformer = Boolean(
+    posProfile?.custom_enable_order_on_behalf &&
+    posProfile?.custom_require_performer_on_order &&
+    !selectedPerformer
+  );
+  const quoteRequestKey = JSON.stringify({
+      items: activeOrders.map((item) => ({ item: item.id, qty: item.quantity })),
+      pos_profile: posProfile?.name || '',
+      order_type: selectedOrderType,
+      customer: selectedCustomer?.name || undefined,
+      table: selectedTable || undefined,
+      room: selectedRoom || undefined,
+      performed_by: selectedPerformer || undefined,
+      invoice: isUpdatingOrder ? orderId || undefined : undefined,
+      service_percentage: posProfile?.custom_service_charge_percentage,
+      cart_options: activeOrders.map((item) => [item.selectedVariant, item.selectedAddons]),
+  });
+  const billingQuote = quoteRequired && !needsPerformer && quoteResult?.key === quoteRequestKey ? quoteResult.quote : undefined;
+  const billingQuoteError = quoteRequired && !needsPerformer && quoteResult?.key === quoteRequestKey && quoteResult.error;
+  const billingQuoteLoading = quoteRequired && !billingQuote && !billingQuoteError;
+
+  useEffect(() => {
+    if (!quoteRequired || needsPerformer) return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      const request =
+        JSON.parse(quoteRequestKey) as Parameters<typeof getCartServiceChargeQuote>[0] & {
+          service_percentage?: number; cart_options?: unknown[];
+        };
+      delete request.service_percentage;
+      delete request.cart_options;
+      getCartServiceChargeQuote(request).then((quote) => {
+        if (current) setQuoteResult({ key: quoteRequestKey, quote });
+      }).catch(() => {
+        if (current) setQuoteResult({ key: quoteRequestKey, error: true });
+      });
+    }, 150);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [quoteRequestKey, quoteRequired, needsPerformer, quoteRetry]);
+
+  const quotedServiceCharge = billingQuote?.service_charge || 0;
+  const displayTotal = quoteRequired
+    ? billingQuote?.rounded_total ?? billingQuote?.grand_total
+    : total;
 
   const handleEdit = (item: typeof activeOrders[0]) => {
     const menuItem = {
@@ -111,7 +168,7 @@ const OrderPanel = () => {
         return;
       }
 
-      if (posProfile.custom_require_performer_on_order && !selectedPerformer) {
+      if (needsPerformer) {
         showToast.error(t('errors.select_performer'));
         return;
       }
@@ -167,9 +224,9 @@ const OrderPanel = () => {
     } catch (error) {
       console.error('Failed to sync order:', error);
       // Frappe API error handling
-      if (error && typeof error === 'object' && '_server_messages' in error && typeof (error as any)._server_messages === 'string') {
+      if (error && typeof error === 'object' && '_server_messages' in error && typeof error._server_messages === 'string') {
         try {
-          const messages = JSON.parse((error as any)._server_messages);
+          const messages = JSON.parse(error._server_messages);
           const messageObj = JSON.parse(messages[0]);
           showToast.error(messageObj.message || 'API error');
         } catch {
@@ -369,6 +426,30 @@ const OrderPanel = () => {
           </div>
           
           <div className="p-4 border-t border-border flex-shrink-0 bg-white">
+            {serviceChargeApplies && billingQuote && (
+              <div className="mb-3 space-y-1 text-sm text-gray-600">
+                <div className="flex justify-between">
+                  <span>{t('cart.subtotal_excluding_service')}</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(billingQuote.subtotal)}</span>
+                </div>
+                {(billingQuote.discount_amount || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span>{t('cart.discounts')}</span>
+                    <span className="font-mono tabular-nums">−{formatCurrency(billingQuote.discount_amount || 0)}</span>
+                  </div>
+                )}
+                {billingQuote.tax_amount > 0 && (
+                  <div className="flex justify-between">
+                    <span>{t('cart.taxes')}</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(billingQuote.tax_amount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>{t('cart.service_charge', { percentage: billingQuote.service_charge_percentage })}</span>
+                  <span className="font-mono tabular-nums">{formatCurrency(quotedServiceCharge)}</span>
+                </div>
+              </div>
+            )}
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <Button
@@ -386,14 +467,29 @@ const OrderPanel = () => {
                 </Button>
                 <span className="text-lg font-semibold">{t('cart.total')}</span>
               </div>
-              <span className="text-lg font-semibold">{formatCurrency(total)}</span>
+              <span className="text-lg font-semibold">
+                {displayTotal === undefined ? '—' : formatCurrency(displayTotal)}
+              </span>
             </div>
+            {serviceChargeApplies && (billingQuoteLoading || billingQuoteError) && (
+              <p className="text-xs text-red-600 mb-2" role="status">
+                {needsPerformer ? t('errors.select_performer') : billingQuoteError ? t('cart.service_charge_quote_error') : t('cart.calculating_total')}
+              </p>
+            )}
+            {billingQuoteError && (
+              <Button variant="outline" className="mb-2 w-full" onClick={() => {
+                setQuoteResult(null);
+                setQuoteRetry((attempt) => attempt + 1);
+              }}>
+                {t('cart.retry_total')}
+              </Button>
+            )}
             <Button
               onClick={handleSubmit}
               variant="default"
               size="default"
               className="w-full"
-              disabled={isInteractionDisabled}
+              disabled={isInteractionDisabled || (serviceChargeApplies && (billingQuoteLoading || billingQuoteError))}
             >
               {isSubmitting ? (
                 <div className="flex items-center">
@@ -435,4 +531,4 @@ const OrderPanel = () => {
   );
 };
 
-export default OrderPanel; 
+export default OrderPanel;

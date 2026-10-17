@@ -5,8 +5,13 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from ury.ury.api.pos_billing import _apply_staff_policy, _policy_allowance, _resolve_policy, get_invoice_billing_quote, prepare_invoice_billing
-
+from ury.ury.api.pos_billing import (
+    _apply_staff_policy,
+    _policy_allowance,
+    _resolve_policy,
+    get_invoice_billing_quote,
+    prepare_invoice_billing,
+)
 
 MODULE = "ury.ury.api.pos_billing"
 
@@ -53,6 +58,7 @@ class TestServiceCharge(FrappeTestCase):
             company="Test Co", branch="Test Branch", custom_enable_service_charge=enabled,
             custom_service_charge_order_types="Dine In", custom_service_charge_percentage=10,
             custom_service_charge_payable_account="Waiter Payable - TC", cost_center="Main - TC",
+            custom_enable_order_on_behalf=1,
         )
 
     def test_disabled_profile_keeps_total_unchanged(self):
@@ -77,6 +83,32 @@ class TestServiceCharge(FrappeTestCase):
         self.assertEqual(doc["taxes"][0].custom_is_service_charge, 1)
         self.assertEqual(doc["taxes"][0].account_head, "Waiter Payable - TC")
 
+    def test_configured_percentage_is_applied_to_discounted_pre_tax_net(self):
+        doc = invoice(manual=20)
+        profile = self.profile()
+        profile.custom_service_charge_percentage = 12.5
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        employee = frappe._dict(status="Active", branch="Test Branch")
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+            f"{MODULE}.frappe.db.get_value",
+            side_effect=lambda doctype, *args, **kwargs: account if doctype == "Account" else employee,
+        ), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
+            result = prepare_invoice_billing(doc)
+        self.assertEqual(result["service_charge_percentage"], 12.5)
+        self.assertEqual(result["service_charge"], 10)
+        self.assertEqual(doc.grand_total, 90)
+
+    def test_configured_dine_in_only_type_must_match_order_type(self):
+        doc = invoice()
+        profile = self.profile()
+        profile.custom_service_charge_order_types = "Take Away"
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+            f"{MODULE}._apply_staff_policy", return_value={"reason": "no_applicable_policy"}
+        ):
+            result = prepare_invoice_billing(doc)
+        self.assertEqual(result["service_charge"], 0)
+        self.assertEqual(doc.grand_total, 100)
+
     def test_charge_requires_waiter_in_branch(self):
         doc = invoice(manual=20)
         doc.custom_waiter_employee = None
@@ -84,6 +116,38 @@ class TestServiceCharge(FrappeTestCase):
         with patch(f"{MODULE}.frappe.get_cached_doc", return_value=self.profile()), patch(f"{MODULE}.frappe.db.get_value", return_value=account), patch("ury.ury.doctype.ury_order.ury_order._validate_additional_discount", return_value=20):
             with self.assertRaisesRegex(frappe.ValidationError, "Assign an active waiter"):
                 prepare_invoice_billing(doc)
+
+    def test_disabled_performer_selection_allows_unassigned_charge_on_save_and_settlement(self):
+        profile = self.profile()
+        profile.custom_enable_order_on_behalf = 0
+        profile.custom_require_performer_on_order = 1
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        for lock in (False, True):
+            with self.subTest(lock=lock):
+                doc = invoice()
+                doc.custom_waiter_employee = None
+                with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+                    f"{MODULE}._apply_staff_policy", return_value={"reason": "no_applicable_policy"}
+                ), patch(f"{MODULE}.frappe.db.get_value", return_value=account):
+                    result = prepare_invoice_billing(doc, lock=lock)
+                self.assertEqual(result["service_charge"], 10)
+                self.assertEqual(doc.grand_total, 110)
+                self.assertIsNone(doc.custom_waiter_employee)
+                self.assertEqual(doc.taxes[0].account_head, "Waiter Payable - TC")
+
+    def test_disabled_performer_selection_still_rejects_wrong_branch_employee(self):
+        profile = self.profile()
+        profile.custom_enable_order_on_behalf = 0
+        account = frappe._dict(company="Test Co", root_type="Liability", is_group=0)
+        employee = frappe._dict(status="Active", branch="Other Branch")
+        with patch(f"{MODULE}.frappe.get_cached_doc", return_value=profile), patch(
+            f"{MODULE}._apply_staff_policy", return_value={"reason": "no_applicable_policy"}
+        ), patch(
+            f"{MODULE}.frappe.db.get_value",
+            side_effect=lambda doctype, *args, **kwargs: account if doctype == "Account" else employee,
+        ):
+            with self.assertRaisesRegex(frappe.ValidationError, "Assign an active waiter"):
+                prepare_invoice_billing(invoice(), lock=True)
 
     def test_takeaway_has_no_service_charge(self):
         doc = invoice(order_type="Take Away")

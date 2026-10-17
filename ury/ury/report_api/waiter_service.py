@@ -1,7 +1,7 @@
 """Manager report of guest-funded service charges owed to waiters.
 
-The POS Invoice is the source of truth: submission fixes both the charge and
-its credited employee. The charge posts to the configured liability account.
+The POS Invoice is the source of truth: submission fixes the charge and any
+credited employee. Unassigned charges remain in the liability account.
 This report shows accrued amounts; any later payout must clear that ledger.
 """
 
@@ -44,6 +44,8 @@ def get_waiter_service_payables(start_date, end_date, branch=None):
     employees = {}
     currency_totals = {}
     for row in rows:
+        if not row.employee:
+            row.employee_name = frappe._("Unassigned")
         entry = employees.setdefault((row.employee, row.currency), {
             "employee": row.employee,
             "employee_name": row.employee_name or row.employee,
