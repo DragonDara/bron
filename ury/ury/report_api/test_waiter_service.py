@@ -9,6 +9,24 @@ from ury.ury.report_api.waiter_service import get_waiter_service_payables
 
 
 class TestWaiterServiceReport(FrappeTestCase):
+    def test_unassigned_charges_are_visible_in_summary_and_invoice_detail(self):
+        rows = [
+            frappe._dict(invoice="INV-1", employee=None, employee_name=None, currency="KZT", amount=34),
+            frappe._dict(invoice="INV-2", employee=None, employee_name=None, currency="KZT", amount=10),
+        ]
+        with patch("ury.ury.report_api.waiter_service.require_manager"), patch(
+            "ury.ury.report_api.waiter_service.validate_date_range"
+        ), patch("ury.ury.report_api.waiter_service.report_settings_join", return_value=""), patch(
+            "ury.ury.report_api.waiter_service.get_business_day_range_condition", return_value="1=1"
+        ), patch("ury.ury.report_api.waiter_service.frappe.db.sql", return_value=rows):
+            report = get_waiter_service_payables("2026-09-01", "2026-09-30", "Demo Branch")
+
+        self.assertEqual(report["totals"], [{"currency": "KZT", "amount": 44}])
+        self.assertEqual(report["employees"][0]["employee_name"], frappe._("Unassigned"))
+        self.assertEqual(report["employees"][0]["amount"], 44)
+        self.assertEqual(report["employees"][0]["invoices"], 2)
+        self.assertTrue(all(row.employee_name == frappe._("Unassigned") for row in report["invoices"]))
+
     def test_groups_submitted_charges_by_credited_waiter(self):
         rows = [
             frappe._dict(invoice="INV-1", employee="EMP-1", employee_name="Waiter One", currency="KZT", amount=23),
