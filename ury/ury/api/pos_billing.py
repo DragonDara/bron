@@ -171,8 +171,10 @@ def _service_charge(invoice, profile, *, require_waiter=True):
     if not account_info or account_info.company != invoice.company or account_info.root_type != "Liability" or account_info.is_group:
         frappe.throw(_("The waiter service account must be a liability ledger in the invoice company."))
 
-    if require_waiter:
-        employee = invoice.get("custom_waiter_employee")
+    employee = invoice.get("custom_waiter_employee")
+    # Profiles with performer selection disabled may collect an unassigned
+    # service charge. An employee already credited must still be valid.
+    if require_waiter and (employee or cint(profile.get("custom_enable_order_on_behalf"))):
         employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
         if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
             frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
@@ -308,13 +310,13 @@ def get_cart_service_charge_quote(items, pos_profile, order_type, customer=None,
     if order_type != "Dine In":
         frappe.throw(_("Service-charge cart quotes are only available for Dine In orders."))
 
-    from ury.ury_pos.api import getBranch
     from ury.ury.doctype.ury_order.ury_order import (
         _has_role,
         _resolve_menu_for_sync,
         _validate_sync_items_against_menu,
         price_items_for_invoice,
     )
+    from ury.ury_pos.api import getBranch
 
     branch = getBranch()
     profile = frappe.get_doc("POS Profile", pos_profile)
@@ -434,8 +436,8 @@ def get_cart_service_charge_quote(items, pos_profile, order_type, customer=None,
 
     invoice.set_missing_values()
     invoice.calculate_taxes_and_totals()
-    # This unsaved preview creates no waiter payable. Recipient validation stays
-    # mandatory on saved invoices and settlement; it does not affect cart prices.
+    # This unsaved preview creates no waiter payable. Saved invoices validate
+    # credited employees and the profile's performer requirement separately.
     result = prepare_invoice_billing(invoice, require_waiter=False)
     discounts = flt(invoice.get("custom_staff_discount_amount")) + flt(invoice.discount_amount)
     return {
