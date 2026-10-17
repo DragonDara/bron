@@ -8,6 +8,12 @@ The charge applies only to **Dine In** orders. URY calculates it on the invoice'
 
 The waiter service report shows accrued charges, not payouts already made. Record each later payout against the same liability account in accounting; reconcile those payments with the per-waiter invoice detail before clearing the liability.
 
+## Register sidebar
+
+The register sidebar also requests a read-only server quote for a dine-in cart when the profile enables service charge. It shows the subtotal, applicable discounts and taxes, service charge, and the inclusive payable total. Quotes are recalculated when the cart or billing context changes; stale totals are hidden while a new quote loads. A failed quote offers a retry and does not present the meal subtotal as payable. Takeaway, delivery, and profiles without service charge retain their existing display.
+
+The cart quote uses the same server price lookup and billing calculator as invoice settlement. It does not save invoices, reserve stock, or create kitchen tickets. When editing a saved draft, its authorized billing context is retained so discounts are included in the preview.
+
 ## Staff Discount Policy
 
 Create and enable a **Staff Discount Policy** in Frappe Desk. Set its branch (or leave it empty for all branches), validity, eligibility, eligible item groups, discount type and value, and optional caps. A branch policy takes precedence over a global policy. Within the same branch scope, the policy with the highest **Priority** wins; equal top priorities cause a configuration error instead of an arbitrary choice.
