@@ -156,7 +156,7 @@ def _apply_staff_policy(invoice, lock=False):
     }
 
 
-def _service_charge(invoice, profile):
+def _service_charge(invoice, profile, *, require_waiter=True):
     if not cint(profile.get("custom_enable_service_charge")):
         return 0
     if invoice.get("order_type") != "Dine In" or profile.get("custom_service_charge_order_types") != "Dine In":
@@ -171,10 +171,11 @@ def _service_charge(invoice, profile):
     if not account_info or account_info.company != invoice.company or account_info.root_type != "Liability" or account_info.is_group:
         frappe.throw(_("The waiter service account must be a liability ledger in the invoice company."))
 
-    employee = invoice.get("custom_waiter_employee")
-    employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
-    if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
-        frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
+    if require_waiter:
+        employee = invoice.get("custom_waiter_employee")
+        employee_info = frappe.db.get_value("Employee", employee, ["status", "branch"], as_dict=True) if employee else None
+        if not employee_info or employee_info.status != "Active" or employee_info.branch != invoice.get("branch"):
+            frappe.throw(_("Assign an active waiter employee in this branch before charging waiter service."))
 
     # The first calculation applies any native manual invoice discount and tax.
     # The charge is based on the resulting pre-tax net total; appended last as
@@ -194,7 +195,7 @@ def _service_charge(invoice, profile):
     return amount
 
 
-def prepare_invoice_billing(invoice, lock=False):
+def prepare_invoice_billing(invoice, lock=False, *, require_waiter=True):
     """Recompute all URY adjustments from invoice and POS Profile documents."""
     profile = frappe.get_cached_doc("POS Profile", invoice.pos_profile)
     if profile.company != invoice.company or profile.get("branch") != invoice.get("branch"):
@@ -226,7 +227,7 @@ def prepare_invoice_billing(invoice, lock=False):
         if actual_discount > flt(policy["amount"]) + 0.005:
             frappe.throw(_("Staff discount exceeds its authorised limit after invoice recalculation."))
         invoice.custom_staff_discount_amount = policy["amount"] = actual_discount
-    charge = _service_charge(invoice, profile)
+    charge = _service_charge(invoice, profile, require_waiter=require_waiter)
     if charge:
         invoice.calculate_taxes_and_totals()
     return {"policy": policy, "service_charge": charge, "service_charge_percentage": flt(profile.get("custom_service_charge_percentage")) if charge else 0}
@@ -433,7 +434,9 @@ def get_cart_service_charge_quote(items, pos_profile, order_type, customer=None,
 
     invoice.set_missing_values()
     invoice.calculate_taxes_and_totals()
-    result = prepare_invoice_billing(invoice)
+    # This unsaved preview creates no waiter payable. Recipient validation stays
+    # mandatory on saved invoices and settlement; it does not affect cart prices.
+    result = prepare_invoice_billing(invoice, require_waiter=False)
     discounts = flt(invoice.get("custom_staff_discount_amount")) + flt(invoice.discount_amount)
     return {
         **result,

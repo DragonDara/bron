@@ -81,7 +81,11 @@ const OrderPanel = () => {
   );
 
   const quoteRequired = serviceChargeApplies && activeOrders.length > 0;
-  const needsPerformer = Boolean(posProfile?.custom_require_performer_on_order && !selectedPerformer);
+  const needsPerformer = Boolean(
+    posProfile?.custom_enable_order_on_behalf &&
+    posProfile?.custom_require_performer_on_order &&
+    !selectedPerformer
+  );
   const quoteRequestKey = JSON.stringify({
       items: activeOrders.map((item) => ({ item: item.id, qty: item.quantity })),
       pos_profile: posProfile?.name || '',
@@ -164,7 +168,7 @@ const OrderPanel = () => {
         return;
       }
 
-      if (posProfile.custom_require_performer_on_order && !selectedPerformer) {
+      if (needsPerformer) {
         showToast.error(t('errors.select_performer'));
         return;
       }

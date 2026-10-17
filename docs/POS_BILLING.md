@@ -14,6 +14,8 @@ The register sidebar also requests a read-only server quote for a dine-in cart w
 
 The cart quote uses the same server price lookup and billing calculator as invoice settlement. It does not save invoices, reserve stock, or create kitchen tickets. When editing a saved draft, its authorized billing context is retained so discounts are included in the preview.
 
+The unsaved cart can preview the service charge without a linked waiter Employee when performer selection is disabled. Performer requirements still apply when enabled on the profile. Saved invoice billing and settlement require an active waiter Employee in the invoice branch before accruing the payable.
+
 ## Staff Discount Policy
 
 Create and enable a **Staff Discount Policy** in Frappe Desk. Set its branch (or leave it empty for all branches), validity, eligibility, eligible item groups, discount type and value, and optional caps. A branch policy takes precedence over a global policy. Within the same branch scope, the policy with the highest **Priority** wins; equal top priorities cause a configuration error instead of an arbitrary choice.
