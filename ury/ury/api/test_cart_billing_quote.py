@@ -74,6 +74,18 @@ class TestCartBillingQuote(FrappeTestCase):
         with self.assertRaises(frappe.PermissionError):
             get_cart_service_charge_quote([{"item": "FOOD", "qty": 1}], self.profile.name, "Dine In")
 
+    def test_disabled_performer_selection_can_quote_without_linked_employee(self):
+        self.profile.custom_enable_order_on_behalf = 0
+        self.profile.custom_require_performer_on_order = 1
+        self.doc.custom_waiter_employee = None
+        with patch("ury.ury.hooks.ury_pos_invoice._employee_for_user", return_value=None):
+            quote = get_cart_service_charge_quote(
+                [{"item": "FOOD", "qty": 1}], self.profile.name, "Dine In",
+            )
+        self.assertEqual(quote["service_charge"], 10)
+        self.assertEqual(quote["rounded_total"], 110)
+        self.assertIsNone(self.doc.custom_waiter_employee)
+
     def test_non_administrator_cannot_quote_another_branch_table(self):
         with self.assertRaises(frappe.PermissionError):
             get_cart_service_charge_quote([{"item": "FOOD", "qty": 1}], self.profile.name, "Dine In", table="OTHER")
