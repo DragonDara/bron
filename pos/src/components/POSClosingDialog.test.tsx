@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { call } from "@ury/core";
 import POSClosingDialog from "./POSClosingDialog";
 
 const getOpenPosOpeningEntriesMock = vi.fn();
@@ -11,6 +12,8 @@ const submitSubPosClosingMock = vi.fn();
 const createPosClosingEntryMock = vi.fn();
 const submitPosClosingEntryMock = vi.fn();
 const getChecklistMock = vi.fn();
+const getShiftReportPrintInfoMock = vi.fn();
+const printShiftReportMock = vi.fn();
 
 // Stable identities: fresh objects per render would re-trigger the
 // loadClosingDetails effect on every state change, resetting rows and
@@ -37,6 +40,19 @@ vi.mock("../lib/pos-closing-api", () => ({
 
 vi.mock("../lib/checklist-api", () => ({
   getChecklist: (...args: any[]) => getChecklistMock(...args),
+}));
+
+vi.mock("../lib/shift-report-api", () => ({
+  getShiftReportPrintInfo: (...args: unknown[]) => getShiftReportPrintInfoMock(...args),
+}));
+
+const { MockPrintPopupBlockedError } = vi.hoisted(() => ({
+  MockPrintPopupBlockedError: class extends Error {},
+}));
+
+vi.mock("../lib/print", () => ({
+  PrintPopupBlockedError: MockPrintPopupBlockedError,
+  printShiftReport: (...args: unknown[]) => printShiftReportMock(...args),
 }));
 
 vi.mock("@ury/core", () => ({
@@ -123,6 +139,7 @@ describe("POSClosingDialog", () => {
     getSubCashierPosInvoicesMock.mockResolvedValue(mockInvoices);
     getMainCashierPosInvoicesMock.mockResolvedValue(mockInvoices);
     getChecklistMock.mockResolvedValue({ logStatus: "Complete" });
+    getShiftReportPrintInfoMock.mockResolvedValue({ report: null, print_format: "", auto_print: 0 });
   });
 
   it("renders dialog title when open", async () => {
@@ -296,5 +313,180 @@ describe("POSClosingDialog", () => {
     await waitFor(() => {
       expect(createPosClosingEntryMock).toHaveBeenCalled();
     });
+  });
+});
+
+describe("POSClosingDialog shift report printing", () => {
+  const openingEntry = {
+    name: "POSOpeningEntry-1",
+    user: "test_user",
+    period_start_date: "2024-01-01 09:00:00",
+  };
+  const invoices = [
+    {
+      name: "SI-001",
+      grand_total: 1000,
+      net_total: 900,
+      total_qty: 2,
+      payments: [{ mode_of_payment: "Cash", amount: 1000, account: "Cash Account" }],
+      account_for_change_amount: "Cash Account",
+      change_amount: 0,
+    },
+  ];
+  const printInfo = {
+    report: "POS-CLO-1",
+    print_format: "URY Cash Shift Report 80mm",
+    auto_print: 1,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPosProfile.multiple_cashier = 0;
+    getOpenPosOpeningEntriesMock.mockResolvedValue([openingEntry]);
+    getSubCashierPosInvoicesMock.mockResolvedValue(invoices);
+    getMainCashierPosInvoicesMock.mockResolvedValue(invoices);
+    getChecklistMock.mockResolvedValue({ logStatus: "Complete" });
+    createPosClosingEntryMock.mockResolvedValue({ name: "POS-CLO-1" });
+    submitPosClosingEntryMock.mockResolvedValue({ name: "POS-CLO-1" });
+    createSubPosClosingMock.mockResolvedValue({ name: "SUB-CLO-1" });
+    submitSubPosClosingMock.mockResolvedValue({ name: "SUB-CLO-1" });
+    getShiftReportPrintInfoMock.mockResolvedValue(printInfo);
+    printShiftReportMock.mockResolvedValue("qz");
+  });
+
+  const closeShift = async () => {
+    await screen.findByTestId("Cash");
+    await userEvent.type(screen.getByTestId("Cash"), "1000");
+    await userEvent.clear(screen.getByTestId("Card"));
+    await userEvent.type(screen.getByTestId("Card"), "0");
+    await userEvent.click(screen.getByRole("button", { name: "pos_closing.submit" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "pos_closing.confirm_submit" })
+    );
+  };
+
+  it("prints the report once after a successful main closing", async () => {
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    // The parent gets the closing, so it can offer a reprint later.
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: "POS-CLO-1" })
+    );
+    expect(getShiftReportPrintInfoMock).toHaveBeenCalledWith("POS-CLO-1");
+    expect(printShiftReportMock).toHaveBeenCalledTimes(1);
+    expect(printShiftReportMock).toHaveBeenCalledWith({
+      report: "POS-CLO-1",
+      printFormat: "URY Cash Shift Report 80mm",
+      posProfile: mockPosProfile,
+    });
+  });
+
+  it("does not print when auto print is off", async () => {
+    getShiftReportPrintInfoMock.mockResolvedValue({ ...printInfo, auto_print: 0 });
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    await waitFor(() => expect(onClosingSubmitted).toHaveBeenCalled());
+    expect(printShiftReportMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the closing and offers a retry when the printer fails", async () => {
+    printShiftReportMock.mockRejectedValueOnce(new Error("QZ Tray is not running"));
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_print_failed_title")).toBeInTheDocument();
+    expect(screen.getByText("QZ Tray is not running")).toBeInTheDocument();
+    expect(screen.queryByText("pos_closing.submit_failed")).not.toBeInTheDocument();
+    expect(onClosingSubmitted).not.toHaveBeenCalled();
+    expect(submitPosClosingEntryMock).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "pos_closing.report_print_again" }));
+
+    await waitFor(() => expect(onClosingSubmitted).toHaveBeenCalled());
+    expect(printShiftReportMock).toHaveBeenCalledTimes(2);
+    expect(submitPosClosingEntryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains a blocked print pop-up and prints on retry", async () => {
+    printShiftReportMock.mockRejectedValueOnce(new MockPrintPopupBlockedError());
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_popup_blocked")).toBeInTheDocument();
+    expect(onClosingSubmitted).not.toHaveBeenCalled();
+
+    // The retry is a real click, which browsers let open a pop-up.
+    await userEvent.click(screen.getByRole("button", { name: "pos_closing.report_print_again" }));
+
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: "POS-CLO-1" })
+    );
+    expect(printShiftReportMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("can continue without the printout", async () => {
+    printShiftReportMock.mockRejectedValue(new Error("Printer offline"));
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "pos_closing.report_continue" })
+    );
+
+    await waitFor(() => expect(onClosingSubmitted).toHaveBeenCalled());
+    expect(printShiftReportMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a missing shift report without failing the closing", async () => {
+    getShiftReportPrintInfoMock.mockResolvedValue({ ...printInfo, report: null });
+    render(<POSClosingDialog open={true} onOpenChange={vi.fn()} />);
+
+    await closeShift();
+
+    expect(await screen.findByText("pos_closing.report_missing")).toBeInTheDocument();
+    expect(printShiftReportMock).not.toHaveBeenCalled();
+  });
+
+  it("never prints a shift report for a Sub POS Closing", async () => {
+    mockPosProfile.multiple_cashier = 1;
+    vi.mocked(call.get).mockResolvedValueOnce({
+      message: { owner: "main_cashier", multiple_cashier: 1 },
+    });
+    const onClosingSubmitted = vi.fn();
+    render(
+      <POSClosingDialog open={true} onOpenChange={vi.fn()} onClosingSubmitted={onClosingSubmitted} />
+    );
+
+    await closeShift();
+
+    await waitFor(() => expect(submitSubPosClosingMock).toHaveBeenCalled());
+    // No POS Closing Entry, so nothing for the parent to reprint.
+    await waitFor(() =>
+      expect(onClosingSubmitted).toHaveBeenCalledWith({ posClosingEntry: null })
+    );
+    expect(getShiftReportPrintInfoMock).not.toHaveBeenCalled();
+    expect(printShiftReportMock).not.toHaveBeenCalled();
+    mockPosProfile.multiple_cashier = 0;
   });
 });

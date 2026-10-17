@@ -446,6 +446,41 @@ def get_custom_fields():
 				"translatable": 0,
 			},
 			{
+				# Kept apart from `print_format`, which is the customer receipt.
+				"fieldname": "custom_shift_report_print_format",
+				"fieldtype": "Link",
+				"label": "Shift Report Print Format",
+				"options": "Print Format",
+				"link_filters": '[["Print Format","doc_type","=","URY POS Shift Report"]]',
+				"description": "Layout of the internal Z-report printed after closing a shift. Defaults to URY Cash Shift Report 80mm.",
+				"insert_after": "qz_host",
+			},
+			{
+				"default": "1",
+				"fieldname": "custom_auto_print_shift_report",
+				"fieldtype": "Check",
+				"label": "Auto Print Shift Report",
+				"description": "Print the shift report automatically after the main cashier closes the shift.",
+				"insert_after": "custom_shift_report_print_format",
+				"translatable": 0,
+			},
+			{
+				"default": "1",
+				"fieldname": "custom_shift_report_show_payment_modes",
+				"fieldtype": "Check",
+				"label": "Shift Report: Show Payment Methods",
+				"insert_after": "custom_auto_print_shift_report",
+				"translatable": 0,
+			},
+			{
+				"default": "1",
+				"fieldname": "custom_shift_report_show_returns",
+				"fieldtype": "Check",
+				"label": "Shift Report: Show Returns",
+				"insert_after": "custom_shift_report_show_payment_modes",
+				"translatable": 0,
+			},
+			{
 				# Off by default so existing profiles keep requiring an explicit customer.
 				"fieldname": "custom_allow_order_without_customer",
 				"fieldtype": "Check",

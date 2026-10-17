@@ -1,0 +1,277 @@
+{
+ "actions": [],
+ "autoname": "field:pos_closing_entry",
+ "creation": "2026-10-12 12:00:00.000000",
+ "description": "Internal (non-fiscal) snapshot of a closed POS shift. Created automatically when a POS Closing Entry is submitted.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "shift_section",
+  "pos_closing_entry",
+  "pos_opening_entry",
+  "pos_profile",
+  "column_break_shift",
+  "branch",
+  "company",
+  "cashier",
+  "cashier_name",
+  "terminal",
+  "terminal_name",
+  "period_section",
+  "posting_date",
+  "period_start_date",
+  "column_break_period",
+  "period_end_date",
+  "totals_section",
+  "sales_amount",
+  "sales_count",
+  "column_break_totals",
+  "return_amount",
+  "return_count",
+  "grand_total",
+  "print_options_section",
+  "show_payment_modes",
+  "column_break_print_options",
+  "show_returns",
+  "payments_section",
+  "payments"
+ ],
+ "fields": [
+  {
+   "fieldname": "shift_section",
+   "fieldtype": "Section Break",
+   "label": "Shift"
+  },
+  {
+   "fieldname": "pos_closing_entry",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Closing Entry",
+   "options": "POS Closing Entry",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "pos_opening_entry",
+   "fieldtype": "Link",
+   "label": "POS Opening Entry",
+   "options": "POS Opening Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "POS Profile",
+   "options": "POS Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_shift",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Branch",
+   "options": "Branch",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Cashier",
+   "options": "User",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fetch_from": "cashier.full_name",
+   "fieldname": "cashier_name",
+   "fieldtype": "Data",
+   "label": "Cashier Name",
+   "read_only": 1
+  },
+  {
+   "description": "Resolved server-side from the enrolled device that submitted the closing. Empty when closed from Desk/API.",
+   "fieldname": "terminal",
+   "fieldtype": "Link",
+   "label": "Terminal",
+   "options": "URY POS Terminal",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "terminal.terminal_name",
+   "fieldname": "terminal_name",
+   "fieldtype": "Data",
+   "label": "Terminal Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "period_section",
+   "fieldtype": "Section Break",
+   "label": "Period"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Posting Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "period_start_date",
+   "fieldtype": "Datetime",
+   "label": "Period Start",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_period",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_end_date",
+   "fieldtype": "Datetime",
+   "label": "Period End",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "default": "0",
+   "fieldname": "sales_amount",
+   "fieldtype": "Currency",
+   "label": "Sales Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "sales_count",
+   "fieldtype": "Int",
+   "label": "Sales Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "return_amount",
+   "fieldtype": "Currency",
+   "label": "Return Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "return_count",
+   "fieldtype": "Int",
+   "label": "Return Count",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Total",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Copied from the POS Profile at closing, so reprints look the same even if the profile changes later.",
+   "fieldname": "print_options_section",
+   "fieldtype": "Section Break",
+   "label": "Print Options"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_payment_modes",
+   "fieldtype": "Check",
+   "label": "Show Payment Methods",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_print_options",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_returns",
+   "fieldtype": "Check",
+   "label": "Show Returns",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payments_section",
+   "fieldtype": "Section Break",
+   "label": "Payments"
+  },
+  {
+   "fieldname": "payments",
+   "fieldtype": "Table",
+   "label": "Payments",
+   "options": "URY POS Shift Report Payment",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-10-12 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "URY",
+ "name": "URY POS Shift Report",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "URY Manager"
+  },
+  {
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "role": "URY Cashier"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
