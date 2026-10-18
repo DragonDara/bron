@@ -9,11 +9,15 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  showToast,
 } from '@ury/ui';
-import { LogOut, CheckCircle2 } from 'lucide-react';
+import { LogOut, CheckCircle2, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { t } from '../i18n';
-import POSClosingDialog from './POSClosingDialog';
+import { PrintPopupBlockedError, printShiftReport } from '../lib/print';
+import { getShiftReportPrintInfo } from '../lib/shift-report-api';
+import { usePOSStore } from '../store/pos-store';
+import POSClosingDialog, { type ClosingSubmittedResult } from './POSClosingDialog';
 
 /**
  * Voluntary end-of-day POS close flow. Surfaced from Settings so a
@@ -28,17 +32,47 @@ import POSClosingDialog from './POSClosingDialog';
  */
 const POSCloseFlow = () => {
   const navigate = useNavigate();
+  const { posProfile } = usePOSStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [closingOpen, setClosingOpen] = useState(false);
   const [closed, setClosed] = useState(false);
+  // Shift report of the closing just submitted (none for a Sub POS Closing).
+  const [closedEntry, setClosedEntry] = useState<string | null>(null);
+  const [isPrintingReport, setIsPrintingReport] = useState(false);
 
   const handleClosingDialogOpenChange = (open: boolean) => {
     setClosingOpen(open);
   };
 
-  const handleClosingSubmitted = async () => {
+  const handleClosingSubmitted = async (result?: ClosingSubmittedResult) => {
     setClosingOpen(false);
+    setClosedEntry(result?.posClosingEntry ?? null);
     setClosed(true);
+  };
+
+  // Lets the cashier print the report again if the automatic print tab was
+  // closed or never opened (the browser print page closes itself even when
+  // its print dialog is cancelled).
+  const handlePrintReport = async () => {
+    if (!closedEntry || !posProfile) return;
+    setIsPrintingReport(true);
+    try {
+      const info = await getShiftReportPrintInfo(closedEntry);
+      if (!info.report) {
+        showToast.error(t('pos_closing.report_missing'));
+        return;
+      }
+      await printShiftReport({ report: info.report, printFormat: info.print_format, posProfile });
+    } catch (error) {
+      console.error('Failed to print shift report:', error);
+      showToast.error(
+        error instanceof PrintPopupBlockedError
+          ? t('pos_closing.report_popup_blocked')
+          : t('pos_closing.report_print_failed')
+      );
+    } finally {
+      setIsPrintingReport(false);
+    }
   };
 
   if (closed) {
@@ -50,9 +84,22 @@ const POSCloseFlow = () => {
             {t('settings.closed_title')}
           </h2>
           <p className="text-sm text-gray-600 mb-6">{t('settings.closed_description')}</p>
-          <Button onClick={() => navigate('/dashboard')}>
-            {t('settings.back_to_dashboard')}
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {closedEntry && (
+              <Button
+                variant="outline"
+                onClick={handlePrintReport}
+                disabled={isPrintingReport}
+                className="gap-2"
+              >
+                <Printer className="h-4 w-4" />
+                {isPrintingReport ? t('pos_closing.report_printing') : t('settings.print_shift_report')}
+              </Button>
+            )}
+            <Button onClick={() => navigate('/dashboard')}>
+              {t('settings.back_to_dashboard')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );

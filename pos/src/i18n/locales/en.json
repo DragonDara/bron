@@ -202,7 +202,15 @@
     "confirm_submit": "Yes, Close POS",
     "confirm_back": "Go Back",
     "checklist_skip": "Skip for now",
-    "checklist_skip_hint": "The POS close was already submitted. You can finish this checklist later."
+    "checklist_skip_hint": "The POS close was already submitted. You can finish this checklist later.",
+    "report_print_failed_title": "Shift closed, report not printed",
+    "report_print_failed_description": "The shift is closed. Check the printer and try again, or continue and reprint the shift report later.",
+    "report_print_failed": "Could not print the shift report.",
+    "report_missing": "The shift is closed, but its report was not created. Ask an administrator to check the Error Log.",
+    "report_print_again": "Print again",
+    "report_printing": "Printing...",
+    "report_continue": "Continue",
+    "report_popup_blocked": "The browser blocked the print window. Allow pop-ups for this site and try printing again."
   },
   "checklist": {
     "title_opening": "Opening Checklist",
@@ -477,7 +485,8 @@
     "confirm_cancel": "Cancel",
     "closed_title": "Session Closed",
     "closed_description": "Your POS session has been closed successfully.",
-    "back_to_dashboard": "Back to Dashboard"
+    "back_to_dashboard": "Back to Dashboard",
+    "print_shift_report": "Print shift report"
   },
   "pos_opening": {
     "title": "Open POS Session",
