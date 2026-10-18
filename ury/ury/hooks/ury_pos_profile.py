@@ -2,12 +2,19 @@ import frappe
 from frappe import _, msgprint
 from frappe.utils import flt
 
+from ury.ury.utils.print_format_scope import (
+    RECEIPT_DOCTYPE,
+    SHIFT_REPORT_DOCTYPE,
+    validate_print_format_doctype,
+)
+
 
 def validate(doc, method):
     validate_bill_check(doc, method)
     validate_cost_center(doc, method)
     validate_credit_settlement(doc, method)
     validate_service_charge(doc, method)
+    validate_print_formats(doc, method)
 
 
 def validate_service_charge(doc, method=None):
@@ -21,6 +28,19 @@ def validate_service_charge(doc, method=None):
     details = frappe.db.get_value("Account", account, ["company", "root_type", "is_group"], as_dict=True) if account else None
     if not details or details.company != doc.company or details.root_type != "Liability" or details.is_group:
         frappe.throw(_("Choose a liability ledger in this POS Profile's company for waiter service payable."))
+
+
+def validate_print_formats(doc, method=None):
+    # The pickers' link filters only guide the UI; the customer receipt and
+    # the internal shift report must never use each other's layout.
+    validate_print_format_doctype(
+        doc.get("print_format"), RECEIPT_DOCTYPE, label=_("Print Format")
+    )
+    validate_print_format_doctype(
+        doc.get("custom_shift_report_print_format"),
+        SHIFT_REPORT_DOCTYPE,
+        label=_("Shift Report Print Format"),
+    )
 
 
 def validate_credit_settlement(doc, method=None):

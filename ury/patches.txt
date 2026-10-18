@@ -32,3 +32,4 @@ ury.patches.v3_30.add_production_plan_item_no_work_order_field
 ury.patches.v3_31.add_pos_billing_fields
 ury.patches.v3_31.refresh_billing_print_formats
 ury.patches.v3_32.add_waiter_service_payable_account
+ury.patches.v3_33.add_pos_profile_shift_report_fields
