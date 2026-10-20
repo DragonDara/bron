@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePOSStore } from '../store/pos-store';
 import { useRootStore } from '../store/root-store';
 import { cn } from '@ury/ui';
 import { Button } from '@ury/ui';
 import TableSelectionDialog from './TableSelectionDialog';
-import { DEFAULT_ORDER_TYPE, DINE_IN, ORDER_TYPES , type OrderType} from '../data/order-types';
+import { DINE_IN, ORDER_TYPES , type OrderType} from '../data/order-types';
 import { HandPlatter } from 'lucide-react';
 import { isUserRestrictedFromTableOrders } from '@ury/core';
 import { formatMergedTableLabel } from '../lib/table-utils';
@@ -21,6 +21,16 @@ const OrderTypeSelect = ({ disabled }: OrderTypeSelectProps) => {
 
   // Check if user is restricted from table orders
   const isRestrictedFromTableOrders = isUserRestrictedFromTableOrders(user, posProfile);
+  const shouldPromptForTable = selectedOrderType === DINE_IN
+    && !selectedTable
+    && !disabled
+    && !isUpdatingOrder
+    && !isRestrictedFromTableOrders
+    && !!posProfile?.branch;
+
+  useEffect(() => {
+    setShowTableDialog(shouldPromptForTable);
+  }, [shouldPromptForTable]);
 
   const handleOrderTypeSelect = (type: OrderType) => {
     // Prevent selecting "Dine In" if user is restricted
@@ -36,13 +46,6 @@ const OrderTypeSelect = ({ disabled }: OrderTypeSelectProps) => {
 
   const handleTableDialogClose = () => {
     setShowTableDialog(false);
-    // Use a timeout to allow state to update before checking
-    setTimeout(() => {
-      const currentState = usePOSStore.getState();
-      if (currentState.selectedOrderType === DINE_IN && !currentState.selectedTable) {
-        setSelectedOrderType(DEFAULT_ORDER_TYPE);
-      }
-    }, 100);
   };
 
   const tableDisplayLabel =
@@ -100,4 +103,4 @@ const OrderTypeSelect = ({ disabled }: OrderTypeSelectProps) => {
   );
 };
 
-export default OrderTypeSelect; 
+export default OrderTypeSelect;
