@@ -1,12 +1,12 @@
 import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useState } from 'react';
-import { getCurrencySymbol } from '@ury/core';
 import { Page, Section, Panel, Badge, Spinner, DataTable, Input, Select, SelectItem, Button, type DataTableColumn } from '@ury/ui';
 import {
   paymentTerminalService,
   PaymentTerminal,
   PaymentTerminalTransaction,
 } from '../../services/paymentTerminal';
+import { useCurrency } from '../../context/CurrencyContext';
 
 const PROVIDERS = ['Simulated', 'Ingenico', 'PAX', 'Verifone', 'Other'];
 
@@ -14,14 +14,6 @@ const formatDateTime = (value?: string) => {
   if (!value) return '';
   const d = new Date(value);
   return d.toLocaleString(getManagementLocale());
-};
-
-const formatCurrency = (value?: number) => {
-  if (value === undefined) return '';
-  return `${getCurrencySymbol()} ${value.toLocaleString(getManagementLocale(), {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 };
 
 const getStatusBadgeVariant = (status: string) => {
@@ -51,6 +43,7 @@ const getTransactionStatusBadgeVariant = (status: string) => {
 };
 
 const PaymentTerminalContent: React.FC = () => {
+  const { format } = useCurrency();
   const [terminals, setTerminals] = useState<PaymentTerminal[]>([]);
   const [transactions, setTransactions] = useState<PaymentTerminalTransaction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -285,7 +278,7 @@ const PaymentTerminalContent: React.FC = () => {
                   key: 'amount',
                   header: 'Amount',
                   align: 'right',
-                  render: (tx) => formatCurrency(tx.amount),
+                  render: (tx) => (tx.amount === undefined ? '' : format(tx.amount, tx.currency)),
                 },
                 {
                   key: 'status',

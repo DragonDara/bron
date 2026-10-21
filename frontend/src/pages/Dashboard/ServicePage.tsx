@@ -16,7 +16,7 @@ import {
   Spinner,
   numericCellClass,
 } from '@ury/ui';
-import { call, getCurrencySymbol } from '@ury/core';
+import { call, formatCurrency as formatMoney } from '@ury/core';
 import { useBranchContext } from '../../context/BranchContext';
 import { translate } from '../../i18n/translate';
 import { DepartmentActivityRow, ShiftMetrics, uryDashboardService } from '../../services/dashboard';
@@ -30,7 +30,7 @@ import {
  * Mirrors the target IA from the ury-app.html mockup -- KPI strip, a ranked
  * Needs-attention feed with inline resolve actions, then a live Departments
  * table -- but every number here comes from a real backend field. Anything
- * the mockup shows that has no backend source today (unavailable value, wastage
+ * the mockup shows that has no backend source today (unavailable amount, wastage
  * %, per-department production-progress) is simply omitted rather than
  * fabricated.
  */
@@ -41,10 +41,9 @@ const getToday = () => {
   return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
 };
 
+/** Whole-unit amounts in the active company's currency (published by CurrencyScope). */
 const formatCurrency = (value: number | undefined): string =>
-  value === undefined || Number.isNaN(value)
-    ? '—'
-    : `${getCurrencySymbol()}${value.toLocaleString(getManagementLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  value === undefined || Number.isNaN(value) ? '—' : formatMoney(Math.round(value));
 
 const severityForItem = (severity: string): AttentionItemProps['severity'] => {
   const normalized = severity.toLowerCase();

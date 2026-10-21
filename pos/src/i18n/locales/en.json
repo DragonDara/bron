@@ -34,7 +34,8 @@
     "close_shift": "Close Shift",
     "lock_pos": "Lock / Switch User",
     "switch_to_desk": "Switch To Desk",
-    "language": "Language"
+    "language": "Language",
+    "switch_to_dashboard": "Switch to Dashboard"
   },
   "dashboard": {
     "live_floor_status": "Live floor status for the current shift",
@@ -54,7 +55,7 @@
     "view_all": "View all",
     "more": "+{{count}} more",
     "shift_brief": "Shift Brief",
-    "shift_brief_placeholder": "AI-written shift summaries are not yet connected. This panel will show HUF's shift observations once integrated.",
+    "shift_brief_placeholder": "AI shift summaries will appear here once connected.",
     "user": "User",
     "period_start_date": "Period Start Date",
     "pos_profile": "POS Profile",
@@ -65,7 +66,68 @@
       "table_occupied_long": "Tables occupied for over 60 minutes: {{count}}",
       "kot_errors": "KOT generation issues in the last hour: {{count}}",
       "unclosed_pos_session": "POS sessions left open from a previous day: {{count}}"
-    }
+    },
+    "title": "Shift Overview",
+    "live_status": "Live floor status for the current shift",
+    "live_badge": "Live",
+    "needs_attention": "Needs Attention",
+    "error_load_attention": "Could not load attention items",
+    "error_load_stats": "Could not load stats",
+    "stat_todays_sales": "Today's Sales",
+    "stat_orders_today": "Orders Today",
+    "stat_avg_order_value": "Avg. Order Value",
+    "stat_active_tables": "Active Tables",
+    "error_load_stats_inline": "Could not load stats",
+    "service_line_title": "Service Line",
+    "service_line_over_badge": "over time",
+    "service_line_tables_tracked": "{{count}} tables tracked",
+    "service_line_error": "Could not load service line",
+    "service_line_loading": "Loading…",
+    "service_line_empty": "No tables seated yet",
+    "service_line_overdue_warning": "{{count}} table running over time — check on them before the next fire.",
+    "service_line_overdue_warning_plural": "{{count}} tables running over time — check on them before the next fire.",
+    "stage_open": "Open",
+    "stage_seated": "Seated",
+    "stage_fired": "Fired",
+    "stage_served": "Served",
+    "stage_over": "Over time",
+    "baseline_title": "Tonight vs Baseline",
+    "baseline_sample_days": "{{days}}-day median",
+    "baseline_error": "Could not load metrics",
+    "baseline_loading": "Loading…",
+    "baseline_empty": "No data yet",
+    "metric_sales": "Sales",
+    "metric_covers": "Covers",
+    "metric_avg_per_cover": "Avg per Cover",
+    "metric_avg_ticket": "Avg Ticket Time",
+    "metric_vs": "vs",
+    "running_low_title": "Running Low",
+    "running_low_error": "Could not load",
+    "running_low_loading": "Loading…",
+    "running_low_empty": "No items flagged — stock looks healthy",
+    "running_low_stock_review": "stock data needs review",
+    "floor_load_title": "Floor Load",
+    "floor_load_error": "Could not load",
+    "floor_load_loading": "Loading…",
+    "floor_load_empty": "No tables assigned yet",
+    "open_sessions_title": "Open Sessions",
+    "open_sessions_error": "Could not load",
+    "open_sessions_loading": "Loading…",
+    "open_sessions_empty": "All sessions closed",
+    "open_sessions_more": "+{{count}} more",
+    "open_sessions_view_all": "View all",
+    "shift_brief_title": "Shift Brief",
+    "notifications_title": "Recent Notifications",
+    "notifications_error": "Could not load",
+    "notifications_loading": "Loading…",
+    "notifications_empty": "No recent notifications",
+    "relative_just_now": "just now",
+    "relative_min_ago": "{{n}} min ago",
+    "relative_hr_ago": "{{n}} hr ago",
+    "relative_days_ago": "{{n}} days ago",
+    "eta_holds": "Holds",
+    "session_ago_mins": "{{m}}m ago",
+    "session_ago_hours": "{{h}}h {{m}}m ago"
   },
   "menu": {
     "special_items": "Special Items"
@@ -210,7 +272,12 @@
     "report_print_again": "Print again",
     "report_printing": "Printing...",
     "report_continue": "Continue",
-    "report_popup_blocked": "The browser blocked the print window. Allow pop-ups for this site and try printing again."
+    "report_popup_blocked": "The browser blocked the print window. Allow pop-ups for this site and try printing again.",
+    "payment_mode": "Payment Mode",
+    "opening": "Opening",
+    "expected": "Expected",
+    "closing": "Closing",
+    "difference": "Difference"
   },
   "checklist": {
     "title_opening": "Opening Checklist",
@@ -227,8 +294,11 @@
     "fail": "FAIL",
     "fail_remarks_placeholder": "Explain the failure (required)",
     "fail_remarks_required": "Remarks are required for failed items.",
-    "blocked_heading": "{checklist} Required",
-    "blocked_message": "{role} has not completed the {checklist} yet. Please ask the {role} to complete it before continuing."
+    "blocked_heading": "{{checklist}} Required",
+    "blocked_message": "{{role}} has not completed the {{checklist}} yet. Please ask the {{role}} to complete it before continuing.",
+    "start": "Start Checklist",
+    "recheck": "Recheck",
+    "retry": "Retry"
   },
   "customer": {
     "search_placeholder": "Search customer...",
@@ -520,9 +590,10 @@
     "error_loading": "Failed to load opening data. Please try again.",
     "error_opening": "Failed to open POS session. Please try again.",
     "opening_balance_help": "Opening Balance is the starting cash/payment amount you're declaring for this shift. It's used to reconcile against sales when you close out.",
-    "zero_balance_warning": "You're opening with a zero balance across all payment modes. Tap \"Confirm & Open\" again to continue anyway.",
+    "zero_balance_warning": "You're opening with ₹0 across all payment modes. Tap \"Confirm & Open\" again to continue anyway.",
     "confirm_zero_balance": "Confirm & Open",
-    "session_opened_success": "POS session opened"
+    "session_opened_success": "POS session opened",
+    "back_to_dashboard": "Back to Dashboard"
   },
   "pin_login": {
     "title": "Enter your PIN",
@@ -546,5 +617,13 @@
     "failed": "Enrollment failed. Check the terminal ID and code, then ask a manager for a new code.",
     "too_many_attempts": "Too many attempts. Wait a while and try again.",
     "manager_hint": "A manager creates the terminal in Desk and generates a short-lived enrollment code."
+  },
+  "open_entries": {
+    "title": "Open Sessions",
+    "col_user": "User",
+    "col_period_start": "Session Start",
+    "col_pos_profile": "POS Profile",
+    "no_sessions": "No open sessions right now",
+    "error_load": "Could not load open sessions"
   }
 }

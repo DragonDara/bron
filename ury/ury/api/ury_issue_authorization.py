@@ -196,7 +196,7 @@ def prior_quantities(plan, department, branch, company, component_item):
     # live if present so this module needs no change once they land; treat
     # their absence today as zero, never as a cached/stale value.
     returned_qty = _sum_live_if_exists("URY Issue Return", dict(filters), "returned_qty")
-    wasted_qty = _sum_live_if_exists("URY Issue Wastage", dict(filters), "wasted_qty")
+    wasted_qty = _sum_live_if_exists("URY Wastage", dict(filters), "wasted_qty")
     return {"authorized_qty": authorized_qty, "returned_qty": returned_qty, "wasted_qty": wasted_qty}
 
 
@@ -307,7 +307,7 @@ def _attach_yield_check_and_wastage_flags(rows):
     )
     wasted_names = _pluck_issue_authorization(
         frappe.get_all(
-            "URY Issue Wastage",
+            "URY Wastage",
             filters={"issue_authorization": ["in", names], "docstatus": ["!=", 2]},
             fields=["issue_authorization"],
         )

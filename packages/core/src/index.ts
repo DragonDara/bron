@@ -1,5 +1,5 @@
 export { createFrappeClient, call, db, auth } from './frappe/client';
-export { getLoggedUser, getUserRoles, logout } from './frappe/auth';
+export { getLoggedUser, getUserRoles, logout, login } from './frappe/auth';
 export {
   isUserRestrictedFromTableOrders,
   canCaptainTransfer,
@@ -29,7 +29,12 @@ export {
   getCurrencyCode,
   setCurrency,
   getAmountLocale,
+  setActiveCurrency,
+  getActiveCurrency,
+  currencyFractionDigits,
+  MIXED_CURRENCY,
 } from './format';
+export type { CurrencyInfo } from './format';
 export { initPrinting, loadQzPrinter, disconnectQzPrinter, printWithQz } from './print/qz';
 export { validateFieldValue } from './utils/validateField';
 export type { ValidationMessages } from './utils/validateField';

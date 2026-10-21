@@ -24,7 +24,7 @@ export default function OpenEntries() {
         setEntries(data);
       } catch (err) {
         console.error('Error fetching open entries:', err);
-        setError(t('dashboard.failed_load_open_sessions'));
+        setError(t('open_entries.error_load'));
       } finally {
         setLoading(false);
       }
@@ -51,9 +51,7 @@ export default function OpenEntries() {
   return (
     <div className="h-full overflow-y-auto p-6 bg-gray-50">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-semibold text-gray-900 mb-6">
-          {t('dashboard.open_sessions')}
-        </h1>
+        <h1 className="text-2xl font-semibold text-gray-900 mb-6">{t('open_entries.title')}</h1>
 
         <Card className="bg-white border border-border">
           <CardContent className="p-6">
@@ -67,22 +65,16 @@ export default function OpenEntries() {
               </div>
             ) : entries.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-600 text-sm">{t('dashboard.no_open_pos_sessions')}</p>
+                <p className="text-gray-600 text-sm">{t('open_entries.no_sessions')}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">
-                        {t('dashboard.user')}
-                      </th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">
-                        {t('dashboard.period_start_date')}
-                      </th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">
-                        {t('dashboard.pos_profile')}
-                      </th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">{t('open_entries.col_user')}</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">{t('open_entries.col_period_start')}</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-700 text-sm">{t('open_entries.col_pos_profile')}</th>
                     </tr>
                   </thead>
                   <tbody>

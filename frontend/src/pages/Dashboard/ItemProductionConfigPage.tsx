@@ -37,7 +37,7 @@ interface ItemProductionConfigRecord {
 }
 
 const PRODUCTION_POLICY_OPTIONS = ['PRE_PRODUCED', 'MADE_TO_ORDER', 'DIRECT_RETAIL'];
-const AVAILABILITY_MODE_OPTIONS = ['Always Available', 'Plan Available'];
+const AVAILABILITY_MODE_OPTIONS = ['Always Available', 'Plan Available', 'Stock Available'];
 
 const emptyForm = {
   active: true,
@@ -443,6 +443,12 @@ export const ItemProductionConfigPage: React.FC = () => {
                 </SelectItem>
               ))}
             </Select>
+            {form.availability_mode === 'Stock Available' && (
+              <p className="text-xs text-text-tertiary mt-1">
+                Stock Available checks warehouse stock or recipe capacity directly and bypasses all
+                Sales Plan restrictions for this item.
+              </p>
+            )}
           </div>
 
           <div>

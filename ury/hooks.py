@@ -55,7 +55,7 @@ page_js = {"point-of-sale": ["public/js/pos_extend.js"]}
 
 # include js in doctype views
 doctype_js = {
-    "POS Closing Entry": "ury/public/js/pos_closing_entry_clock_integrity.js",
+    "POS Closing Entry": "ury/public/js/pos_closing_entry.js",
     "Production Plan": [
         "public/js/production_plan_cancel_guard.js",
         "public/js/production_plan_prepare.js",
@@ -207,14 +207,17 @@ permission_query_conditions = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"POS Invoice Merge Log": "ury.ury.class_overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog"
+}
 
 # HUF-optional: seeds/self-heals the "URY Dashboard Assistant" Agent record
 # on every migrate. Safe to define even when huf is not installed — the
 # function itself no-ops when "huf" isn't in the installed apps list.
-after_migrate = ["ury.ury.ai_tools.agent_seeding.after_migrate"]
+after_migrate = [
+    "ury.ury.ai_tools.agent_seeding.after_migrate",
+    "ury.setup_customizations.hide_setup_sidebar_options",
+]
 
 # The "URY Sales Plan" Workflow fixture (ury/ury/workflow/ury_sales_plan/ury_sales_plan.json)
 # links to Workflow State / Workflow Action Master records that frappe core does
@@ -243,6 +246,7 @@ doc_events = {
     },
     "POS Profile": {"validate": "ury.ury.hooks.ury_pos_profile.validate"},
     "Sales Invoice": {
+        "validate": "ury.ury.hooks.ury_sales_invoice.validate",
         "before_insert": "ury.ury.hooks.ury_sales_invoice.before_insert",
         "on_update":"ury.ury.hooks.ury_sales_invoice.on_update",
         "on_submit": [
@@ -268,6 +272,12 @@ doc_events = {
             "ury.ury.hooks.ury_pos_opening_entry.before_save",
             "ury.ury.hooks.pos_opening.update_daily_checklists",
         ],
+        # v16 runs `before_save` hooks ONLY for the save action: the POS
+        # opening screen creates the entry with .submit() (action "submit"
+        # runs validate + before_submit, skipping before_save), so the
+        # checklist gate must also be wired to before_submit -- otherwise
+        # the cashier can open the shift before the Order Taker submitted.
+        "before_submit": "ury.ury.hooks.pos_opening.update_daily_checklists",
         "before_insert":"ury.ury.api.ury_kot_order_number.set_last_invoice_in_pos_open",
         },
     "POS Closing Entry": {
@@ -281,7 +291,10 @@ doc_events = {
             # handler reads that table, so the order matters. No-op unless
             # the branch has `closing_reconciliation_enabled` (tier gate 3).
             "ury.ury.hooks.ury_pos_closing_reconciliation.validate_closing_reconciliation",
-            "ury.ury.hooks.pos_closing.validate_daily_checklists",
+            "ury.ury.hooks.ury_pos_closing_entry.validate_daily_checklists",
+        ],
+        "on_submit": [
+            "ury.ury.hooks.ury_pos_closing_entry.submit_stock_correction",
         ],
         # Internal shift report snapshot. Runs after ERPNext's own on_submit
         # (invoice consolidation); a report failure is logged, never raised.
@@ -615,6 +628,10 @@ fixtures = [
                     "Printer Settings-kot",
                     "POS Profile-kot_naming_series",
                     "POS Profile-custom_kot_settings",
+                    "POS Profile-submit_stock_correction",
+                    "POS Closing Entry-draft_stock_correction",
+                    "POS Profile-custom_sales_closing_time",
+                    "POS Profile-custom_wastage_time",
                     "POS Profile-custom_kot_alert",
                     "POS Profile-custom_kot_alert_sound",
                     "POS Profile-custom_kot_warning_time",
@@ -641,6 +658,9 @@ fixtures = [
                     "POS Profile-high_volume",
                     "POS Profile-low_volume",
                     "POS Profile-high_food_cost",
+                    "POS Profile-custom_wastage_real_time_stock",
+                    "POS Profile-custom_enable_opening_date",
+                    "POS Profile-custom_wastage_time",
                     "Cost Center-branch",
                     "Journal Entry-branch",
                     "Employee-payment_amount",
@@ -665,7 +685,16 @@ fixtures = [
                     "Stock Entry-branch",
                     "Stock Entry-custom_ury_posting_intent",
                     "POS Profile-cash_discount_account",
-                    "Sales Invoice-cash_discount_journal_entry"
+                    "Sales Invoice-cash_discount_journal_entry",
+                    "POS Profile-validate_stock_correction",
+                    "POS Profile-validate_daily_p_and_l",
+                    "POS Profile-validate_attendance",
+                    "POS Profile-validate_wastage",
+                    "POS Profile-custom_column_break_ydn1v",
+                    "POS Profile-custom_disposables",
+                    "POS Profile-custom_column_break_bgzjv",
+                    "POS Profile-custom_section_break_bmczy",
+                    "POS Profile-custom_ury_pos_configurations"
                 },
             ]
         ],
@@ -680,6 +709,7 @@ fixtures = [
                     "POS Closing Entry Detail-closing_amount-label",
                     "POS Invoice Item-qty-allow_on_submit",
                     "POS Invoice-items-allow_on_submit",
+                    "Stock Entry-main-field_order",
                 }
             ]
         ],

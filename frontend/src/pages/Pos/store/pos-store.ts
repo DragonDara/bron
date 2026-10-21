@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { getCurrencyCode, getCurrencySymbol, setCurrency } from '@ury/core';
+import { getCurrencyCode, getCurrencySymbol, setCurrency, storage } from '@ury/core';
 import { getRestaurantMenu, getAggregatorMenu, MenuItem as APIMenuItem } from '../lib/menu-api';
 import { getCurrencyInfo, PosProfileCombined, getCombinedPosProfile } from '../lib/pos-profile-api';
 import { getMenuCourses } from '../lib/menu-course-api';
@@ -12,6 +12,8 @@ import { getPaymentModes } from '../lib/payment-api';
 // Constants
 const MAX_QUANTITY = 99;
 const MIN_QUANTITY = 0;
+/** Currency code the cached `currencySymbol` belongs to. */
+const CURRENCY_SYMBOL_CODE_KEY = 'currencySymbolCode';
 
 // Custom error class for cart operations
 class CartError extends Error {
@@ -151,6 +153,7 @@ interface POSStore extends POSState {
   fetchCustomerGroups: () => Promise<void>;
   fetchTerritories: () => Promise<void>;
   fetchCurrencySymbol: () => Promise<void>;
+  ensureCurrencySymbol: () => Promise<void>;
   getCartTotals: () => CartTotals;
   itemExistsInCart: (uniqueId: string) => boolean;
   validateQuantity: (quantity: number) => boolean;
@@ -257,18 +260,33 @@ export const usePOSStore = create<POSStore>((set, get) => ({
 
   fetchPosProfile: async () => {
     try {
+      const cached = sessionStorage.getItem('posProfile');
+      if (cached) {
+        const profile = JSON.parse(cached) as PosProfileCombined;
+        setCurrency(profile.currency);
+        const currency = profile.currency || getCurrencyCode();
+        set({
+          posProfile: profile,
+          profileLoading: false,
+          currency,
+        });
+        await get().ensureCurrencySymbol();
+        return;
+      }
+
       set({ profileLoading: true, error: null });
       const combinedProfile = await getCombinedPosProfile();
       setCurrency(combinedProfile.currency);
-      
+
+      const currency = combinedProfile.currency || getCurrencyCode();
       sessionStorage.setItem('posProfile', JSON.stringify(combinedProfile));
-      set({ 
-        posProfile: combinedProfile, 
+      set({
+        posProfile: combinedProfile,
         profileLoading: false,
-        currency: combinedProfile.currency || getCurrencyCode()
+        currency,
       });
-      
-      await get().fetchCurrencySymbol();
+
+      await get().ensureCurrencySymbol();
     } catch (error) {
       console.error('Error fetching POS profile:', error);
       set({ 
@@ -278,21 +296,34 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     }
   },
 
+  // The cached symbol is tagged with the currency it belongs to, so loading a
+  // profile in a different currency (another company) refetches it instead of
+  // reusing the previous company's symbol.
+  ensureCurrencySymbol: async () => {
+    const currency = get().currency;
+    const cachedSymbol = storage.getItem('currencySymbol');
+    if (currency && cachedSymbol && storage.getItem(CURRENCY_SYMBOL_CODE_KEY) === currency) {
+      setCurrency(currency, cachedSymbol);
+      if (get().currencySymbol !== cachedSymbol) set({ currencySymbol: cachedSymbol });
+      return;
+    }
+    await get().fetchCurrencySymbol();
+  },
+
   fetchCurrencySymbol: async () => {
+    const currency = get().currency;
+    let symbol = currency;
     try {
-      const currency = get().currency;
       setCurrency(currency);
       const response = currency ? await getCurrencyInfo(currency) : { symbol: '' };
-      const symbol = response.symbol || currency;
-      setCurrency(currency, symbol);
-      
-      set({ currencySymbol: symbol });
-
+      symbol = response.symbol || currency;
     } catch (error) {
       console.error('Error fetching currency symbol:', error);
-      setCurrency(get().currency);
-      set({ currencySymbol: get().currency });
     }
+    setCurrency(currency, symbol);
+    set({ currencySymbol: symbol });
+    storage.setItem('currencySymbol', symbol);
+    storage.setItem(CURRENCY_SYMBOL_CODE_KEY, currency);
   },
 
   fetchMenuItems: async () => {
