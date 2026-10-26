@@ -241,6 +241,7 @@ jobs:
               ury.ury.services.test_yield_check_reminders
               ury.ury_pos.test_api
               ury.ury_pos.test_e2e_p0_p1_flow
+              ury.ury_pos.test_validate_pos_close
 
     steps:
       - name: Checkout code

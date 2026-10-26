@@ -1220,19 +1220,19 @@ def validate_pos_close(pos_profile):
     if enable_unclosed_pos_check:
         current_datetime = frappe.utils.now_datetime()
         start_of_day = current_datetime.replace(hour=5, minute=0, second=0, microsecond=0)
-        
+
         if current_datetime > start_of_day:
-            previous_day = start_of_day - timedelta(days=1)
-            
+            business_date = current_datetime.date()
         else:
-            previous_day = start_of_day
-    
-        # A session left open for 2+ days (missed close, not just yesterday's)
-        # must still be caught, not just one opened exactly on `previous_day`.
+            business_date = current_datetime.date() - timedelta(days=1)
+
+        # The business day starts at 05:00: before that we are still on the previous
+        # day, so a session opened last night is not overdue yet. Any open session
+        # older than the current business day is overdue (including 2+ days old).
         unclosed_pos_opening = frappe.db.exists(
             "POS Opening Entry",
             {
-                "posting_date": ["<=", previous_day.date()],
+                "posting_date": ["<", business_date],
                 "status": "Open",
                 "pos_profile": pos_profile,
                 "docstatus": 1
