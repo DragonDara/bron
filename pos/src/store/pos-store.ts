@@ -236,6 +236,15 @@ const calculateItemPrice = (item: OrderItem): number => {
   return basePrice + addonsTotal;
 };
 
+const MIN_PAX = 1
+const MAX_PAX = 50
+
+export function normalizePax(value: unknown): number {
+  const n = Math.trunc(Number(value))
+  if (!Number.isFinite(n) || n < MIN_PAX) return MIN_PAX
+  return Math.min(MAX_PAX, n)
+}
+
 const EMPTY_LOADED_ORDER: Partial<POSState> = {
   tableOrder: null,
   activeOrders: [],
@@ -297,7 +306,7 @@ const loadedOrderState = (response: TableOrder): Partial<POSState> => {
     selectedPerformer: order.custom_waiter_employee || null,
     isUpdatingOrder: true,
     orderId: order.name,
-    noOfPax: order.no_of_pax || 1,
+    noOfPax: normalizePax(order.no_of_pax),
     lastModifiedTime: order.modified || null,
     orderComment: order.custom_comments || '',
   };
@@ -650,7 +659,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelectedAggregator: (aggregator) => set({ selectedAggregator: aggregator }),
   setOrderComment: (comment: string) => set({ orderComment: comment }),
-  setNoOfPax: (pax: number) => set({ noOfPax: pax }),
+  setNoOfPax: (pax) => set({ noOfPax: normalizePax(pax) }),
   setShowVoluntaryClosing: (show: boolean) => set({ showVoluntaryClosing: show }),
 
   processPayment: async (paymentMode: string, amount: number) => {
