@@ -31,7 +31,7 @@ class TestOrderPerformerDisplay(unittest.TestCase):
 
         self.assertIn("custom_waiter_employee", mock_sql.call_args.args[0])
         self.assertEqual(result["data"][0]["performer_name"], "Aiman Sadykova")
-        self.assertNotIn("performer_name", result["data"][1])
+        self.assertIsNone(result["data"][1]["performer_name"])
         mock_get_all.assert_called_once_with(
             "Employee",
             filters={"name": ["in", ["EMP-1"]]},
