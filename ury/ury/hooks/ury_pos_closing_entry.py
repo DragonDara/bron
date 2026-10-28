@@ -1,6 +1,6 @@
 import frappe
 from frappe.utils import get_datetime
-
+from ury.ury.doctype.sub_pos_closing.sub_pos_closing import assert_no_open_invoices
 def before_save(doc, method):
     sub_pos_close_check(doc, method)
 
@@ -8,6 +8,7 @@ def validate(doc, method):
     populate_pos_transactions(doc, method)
     calculate_closing_amount(doc, method)
     validate_cashier(doc, method)
+    assert_no_open_invoices(doc.pos_profile)
 
 
 def populate_pos_transactions(doc, method):
