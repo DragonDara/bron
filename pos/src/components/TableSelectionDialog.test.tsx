@@ -85,7 +85,10 @@ describe("TableSelectionDialog", () => {
       expect(screen.getByText("Room-1")).toBeInTheDocument();
     });
 
-    expect(getTablesMock).toHaveBeenCalled();
+    // Tables load in a later effect than rooms, so wait for the call instead of asserting immediately.
+    await waitFor(() => {
+      expect(getTablesMock).toHaveBeenCalled();
+    });
   });
 
   it("displays tables in a grid", async () => {
