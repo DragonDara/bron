@@ -52,7 +52,7 @@ describe('SetupPage', () => {
     });
   });
 
-  //no input fields rendered on first step
+  // Skipped 2026-10-29 (red on v3-stg CI): no input fields rendered on first step. TODO: investigate.
   it.skip('renders form fields for company setup', async () => {
     render(<SetupPage />);
     await waitFor(() => {
