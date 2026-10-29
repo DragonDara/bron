@@ -84,7 +84,7 @@ describe('management and embedded POS language', () => {
 });
 
 describe('Russian catalog', () => {
-  //missing Russian key checklit.pass
+  // Skipped 2026-10-29 (red on v3-stg CI): missing Russian key checklist.pass. TODO: investigate.
   it.skip('covers every embedded POS key and preserves interpolation parameters', () => {
     const check = (en: Record<string, unknown>, ru: Record<string, unknown>, prefix = '') => {
       for (const [key, value] of Object.entries(en)) {
