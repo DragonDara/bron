@@ -53,10 +53,10 @@ vi.mock("@ury/ui", async () => {
 
 vi.mock("../i18n", () => ({
   t: (key: string) => key,
+  getActiveLanguage: () => "en",
 }));
 
-// Skipped 2026-10-29 (red on v3-stg CI): ../i18n mock lacks getActiveLanguage. TODO: investigate.
-describe.skip("Header", () => {
+describe("Header", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
