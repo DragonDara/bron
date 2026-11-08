@@ -22,6 +22,10 @@ import { test, expect } from '@playwright/test';
  *    the app actually renders with no session at all.
  */
 
+const URY_E2E_USER = process.env.URY_E2E_USER ?? 'test@erpnext.com';
+const URY_E2E_PASSWORD = process.env.URY_E2E_PASSWORD ?? 'testpass123';
+const URY_E2E_ITEM = process.env.URY_E2E_ITEM ?? 'Appam';
+
 test.describe('POS app', () => {
   test('loads and renders a recognizable app shell', async ({ page }) => {
     await page.goto('/pos/order');
@@ -50,8 +54,8 @@ test.describe('POS app', () => {
     // Real UI login (not an API shortcut) so this exercises the same
     // frappe.boot/csrf_token session-bootstrap path AuthGuard depends on.
     await page.goto('/login');
-    await page.fill('#login_email', 'test@erpnext.com');
-    await page.fill('#login_password', 'testpass123');
+    await page.fill('#login_email', URY_E2E_USER);
+    await page.fill('#login_password', URY_E2E_PASSWORD);
     await page.click('.btn-login');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
@@ -107,8 +111,8 @@ test.describe('POS app', () => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto('/login');
-    await page.fill('#login_email', 'test@erpnext.com');
-    await page.fill('#login_password', 'testpass123');
+    await page.fill('#login_email', URY_E2E_USER);
+    await page.fill('#login_password', URY_E2E_PASSWORD);
     await page.click('.btn-login');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
@@ -122,7 +126,7 @@ test.describe('POS app', () => {
 
     // Fresh table -> CaptainOrder.tsx defaults to "menu" mode (no existing
     // lines yet), so the menu grid (CaptainMenu.tsx) is already showing.
-    const menuItem = page.getByText('Appam', { exact: true }).first();
+    const menuItem = page.getByText(URY_E2E_ITEM, { exact: true }).first();
     await expect(menuItem).toBeVisible({ timeout: 10000 });
     await menuItem.click();
 
@@ -136,7 +140,7 @@ test.describe('POS app', () => {
     // Real assertion against CaptainOrder.tsx's own "New / Changed" section
     // and its literal order-line label format.
     await expect(page.getByRole('heading', { name: 'New / Changed' }).first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('+1 × Appam').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(`+1 × ${URY_E2E_ITEM}`).first()).toBeVisible({ timeout: 5000 });
   });
 
   // Still genuinely out of scope for this pass (see EXECUTION_LOG.md Phase 5
