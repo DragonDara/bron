@@ -190,6 +190,15 @@ const calculateItemPrice = (item: OrderItem): number => {
   return basePrice + addonsTotal;
 };
 
+const MIN_PAX = 1
+const MAX_PAX = 50
+
+export function normalizePax(value: unknown): number {
+  const n = Math.trunc(Number(value))
+  if (!Number.isFinite(n) || n < MIN_PAX) return MIN_PAX
+  return Math.min(MAX_PAX, n)
+}
+
 export const usePOSStore = create<POSStore>((set, get) => ({
   menuItems: [],
   categories: [],
@@ -506,7 +515,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   setSelectedItem: (item) => set({ selectedItem: item }),
   setSelectedAggregator: (aggregator) => set({ selectedAggregator: aggregator }),
   setOrderComment: (comment: string) => set({ orderComment: comment }),
-  setNoOfPax: (pax: number) => set({ noOfPax: pax }),
+  setNoOfPax: (pax) => set({ noOfPax: normalizePax(pax) }),
 
   processPayment: async (paymentMode: string, amount: number) => {
     try {
@@ -653,7 +662,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
           selectedPerformer: order.custom_waiter_employee || null,
           isUpdatingOrder: true,
           orderId: order.name,
-          noOfPax: order.no_of_pax || 1,
+          noOfPax: normalizePax(order.no_of_pax),
           lastModifiedTime: order.modified || null,
           orderComment: order.custom_comments || '',
         });
