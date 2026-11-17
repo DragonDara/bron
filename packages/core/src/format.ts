@@ -169,6 +169,18 @@ export function formatCompactCurrency(amount: number, currency?: CurrencyInfo | 
   return `${sign}${symbol}${compact}`;
 }
 
+/**
+ * Normalise a Frappe Time/timedelta string ("H:M:S.micro", unpadded) to a
+ * zero-padded "HH:MM:SS" that `new Date(`${date} ${time}`)` can parse.
+ * Non-matching input is returned unchanged.
+ */
+export const normalizeFrappeTime = (time: string | null | undefined): string => {
+  if (!time) return '';
+  const m = time.match(/^(\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.\d+)?$/);
+  if (!m) return time;
+  return `${m[1].padStart(2, '0')}:${m[2].padStart(2, '0')}:${m[3].padStart(2, '0')}`;
+};
+
 export const formatInvoiceTime = (timestamp: string | null) => {
   if (!timestamp) return 'No bill activity yet';
 

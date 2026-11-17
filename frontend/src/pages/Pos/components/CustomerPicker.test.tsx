@@ -3,9 +3,12 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CustomerPicker } from "./CustomerPicker";
 
-const searchCustomersMock = vi.fn();
-const addCustomerMock = vi.fn();
-vi.mock("../lib/customer-api", () => ({ searchCustomers: (...a: any) => searchCustomersMock(...a), addCustomer: (...a: any) => addCustomerMock(...a) }));
+const mockCustomerApi = vi.hoisted(() => ({
+  searchCustomers: vi.fn(),
+  getCustomersByOrderType: vi.fn(),
+  addCustomer: vi.fn(),
+}));
+vi.mock("../lib/customer-api", () => mockCustomerApi);
 vi.mock("../store/pos-store", () => ({ usePOSStore: () => ({ customerGroups: [], territories: [], fetchCustomerGroups: vi.fn(), fetchTerritories: vi.fn() }) }));
 vi.mock("../i18n", () => ({ t: (key: string) => key }));
 
@@ -33,21 +36,34 @@ describe("CustomerPicker", () => {
   });
 
   it("searches customers when input changes", async () => {
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
     await user.type(input, "John");
-    await waitFor(() => { expect(searchCustomersMock).toHaveBeenCalled(); });
+    await waitFor(() => { expect(mockCustomerApi.searchCustomers).toHaveBeenCalled(); });
   });
 
   it("shows latest customers on focus before typing", async () => {
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     await user.click(screen.getByPlaceholderText("customer.search_placeholder"));
     await waitFor(() => { expect(screen.getByText("John Doe")).toBeInTheDocument(); });
-    expect(searchCustomersMock).toHaveBeenCalledWith("", 10);
+    expect(mockCustomerApi.searchCustomers).toHaveBeenCalledWith("", 10);
+  });
+
+  it("filters customers by order type while searching", async () => {
+    mockCustomerApi.getCustomersByOrderType.mockResolvedValue([
+      { name: "CUST-002", content: "Customer Name : Jane Doe|Mobile Number : 1234567890" },
+    ]);
+    const user = userEvent.setup();
+    render(<CustomerPicker value={null} onChange={vi.fn()} orderType="Dine In" />);
+    await user.click(screen.getByPlaceholderText("customer.search_placeholder"));
+    await waitFor(() => {
+      expect(mockCustomerApi.getCustomersByOrderType).toHaveBeenCalledWith("Dine In", "");
+    });
+    expect(await screen.findByText("Jane Doe")).toBeInTheDocument();
   });
 
   it("disables input when disabled prop is true", () => {
@@ -57,7 +73,7 @@ describe("CustomerPicker", () => {
   });
 
   it("handles search errors gracefully", async () => {
-    searchCustomersMock.mockRejectedValue(new Error("Search failed"));
+    mockCustomerApi.searchCustomers.mockRejectedValue(new Error("Search failed"));
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
@@ -68,7 +84,7 @@ describe("CustomerPicker", () => {
 
   it("calls onChange when customer selected", async () => {
     const onChange = vi.fn();
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={onChange} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");

@@ -7,7 +7,7 @@ import { showToast } from '@ury/ui';
 import { cn } from '@ury/ui';
 import OrderStatusSidebar from '../components/OrderStatusSidebar';
 import { useRootStore } from '../store/root-store';
-import { formatCurrency } from '@ury/core';
+import { formatCurrency, normalizeFrappeTime } from '@ury/core';
 import { Spinner } from '@ury/ui';
 import { Textarea } from '@ury/ui';
 import { usePOSStore } from '../store/pos-store';
@@ -19,7 +19,6 @@ import OrderActionsMenu from '../components/OrderActionsMenu';
 import SplitGroupPanel from '../components/SplitGroupPanel';
 import MergedBillPanel from '../components/MergedBillPanel';
 import { printOrder } from '../lib/print';
-import { call } from '@ury/core';
 import { splitBill, cancelOrder } from '../lib/order-api';
 import {
   getOrdersTabForInvoice,
@@ -180,7 +179,7 @@ export default function Orders() {
 
   // Function to format the date and time
   const formatDateTime = (date: string, time: string) => {
-    const formattedDate = new Date(date + ' ' + time).toLocaleString(getManagementLocale(), {
+    const formattedDate = new Date(date + ' ' + normalizeFrappeTime(time)).toLocaleString(getManagementLocale(), {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',

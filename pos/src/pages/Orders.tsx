@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { showToast } from '@ury/ui';
 import OrderStatusSidebar from '../components/OrderStatusSidebar';
 import { useRootStore } from '../store/root-store';
-import { formatCurrency } from '@ury/core';
+import { formatCurrency, normalizeFrappeTime } from '@ury/core';
 import { Spinner } from '@ury/ui';
 import { Textarea } from '@ury/ui';
 import { usePOSStore } from '../store/pos-store';
@@ -34,7 +34,7 @@ import {
   isOrderTypeNotAllowedError,
   isLastItemCannotBeRemovedError,
 } from '../lib/order-api';
-import { parseFrappeError } from '../lib/pos-opening-api';
+import { parseFrappeError } from '@ury/core';
 import { formatMergedTableLabel } from '../lib/table-utils';
 import { t } from '../i18n';
 
@@ -168,7 +168,7 @@ export default function Orders() {
 
   // Function to format the date and time
   const formatDateTime = (date: string, time: string) => {
-    const formattedDate = new Date(date + ' ' + time).toLocaleString('en-US', {
+    const formattedDate = new Date(date + ' ' + normalizeFrappeTime(time)).toLocaleString(getActiveLanguage(), {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -214,7 +214,7 @@ export default function Orders() {
       clearSelectedOrder();
       fetchOrders();
     } catch (err) {
-      showToast.error(err instanceof Error ? err.message : t('errors.failed_cancel_order'));
+      showToast.error(parseFrappeError(err, t('errors.failed_cancel_order')));
     } finally {
       setCancelLoading(false);
     }
@@ -231,9 +231,7 @@ export default function Orders() {
       }
       navigate('/register');
     } catch (err) {
-      showToast.error(
-        parseFrappeError(err) || (err instanceof Error ? err.message : t('errors.failed_edit_order'))
-      );
+      showToast.error(parseFrappeError(err, t('errors.failed_edit_order')));
     } finally {
       setEditLoading(false);
     }

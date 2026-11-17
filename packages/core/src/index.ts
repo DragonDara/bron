@@ -7,6 +7,7 @@ export {
   canSettleOnCredit,
   derivePOSCapabilities,
 } from './frappe/roles';
+export { parseFrappeError } from './frappe/errors';
 export {
   buildDeskUrl,
   withReturnContext,
@@ -25,6 +26,7 @@ export {
   formatCurrency,
   formatCompactCurrency,
   formatInvoiceTime,
+  normalizeFrappeTime,
   getCurrencySymbol,
   getCurrencyCode,
   setCurrency,

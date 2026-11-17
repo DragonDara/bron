@@ -13,8 +13,8 @@ vi.mock("./AggregatorSelect", () => ({
 }));
 
 vi.mock("./CustomerPicker", () => ({
-  CustomerPicker: ({ optional }: { optional?: boolean }) => (
-    <div data-testid="picker" data-optional={String(Boolean(optional))}>
+  CustomerPicker: ({ optional, orderType }: { optional?: boolean; orderType?: string }) => (
+    <div data-testid="picker" data-optional={String(Boolean(optional))} data-order-type={orderType}>
       Picker
     </div>
   ),
@@ -60,5 +60,11 @@ describe("CustomerSelect", () => {
     storeState.posProfile = { custom_allow_order_without_customer: 0 };
     const { getByTestId } = render(<CustomerSelect />);
     expect(getByTestId("picker")).toHaveAttribute("data-optional", "false");
+  });
+
+  it("passes the selected order type to the customer picker", () => {
+    storeState.selectedOrderType = "Dine In";
+    const { getByTestId } = render(<CustomerSelect />);
+    expect(getByTestId("picker")).toHaveAttribute("data-order-type", "Dine In");
   });
 });

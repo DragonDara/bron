@@ -533,6 +533,10 @@ def _business_day_bounds(branch):
 	return start, end
 
 
+# Longest plausible ticket when a KOT is served after midnight.
+MAX_TICKET_SECONDS = 6 * 60 * 60
+
+
 @frappe.whitelist(methods=["GET"])
 def get_shift_metrics(branch=None):
 	cache_key = f"ury_dashboard_shift_metrics:{branch}"
@@ -571,13 +575,27 @@ def get_shift_metrics(branch=None):
 		kot_conditions += " AND k.`branch` = %(branch)s"
 		kot_params["branch"] = branch
 
+	# Both start_time_prep and start_time_serv are Time fields; compare time-of-day
+	# seconds. serv < prep is treated as a midnight crossing only when the wrapped
+	# duration is plausible (<= MAX_TICKET_SECONDS); anything else is bad data and
+	# is excluded rather than counted as a ~24h ticket. NULL rows are excluded.
 	ticket_row = frappe.db.sql(
 		f"""
-		SELECT AVG(TIMESTAMPDIFF(MINUTE, k.`start_time_prep`, k.`start_time_serv`)) AS avg_ticket_minutes
-		FROM `tabURY KOT` k
-		WHERE {kot_conditions}
+		SELECT AVG(t.secs) / 60 AS avg_ticket_minutes
+		FROM (
+			SELECT CASE
+				WHEN d.diff >= 0 THEN d.diff
+				WHEN d.diff + 86400 <= %(max_ticket_seconds)s THEN d.diff + 86400
+			END AS secs
+			FROM (
+				SELECT TIME_TO_SEC(k.`start_time_serv`) - TIME_TO_SEC(k.`start_time_prep`) AS diff
+				FROM `tabURY KOT` k
+				WHERE {kot_conditions}
+			) d
+		) t
+		WHERE t.secs IS NOT NULL
 		""",
-		kot_params,
+		{**kot_params, "max_ticket_seconds": MAX_TICKET_SECONDS},
 		as_dict=True,
 	)[0]
 

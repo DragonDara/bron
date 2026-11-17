@@ -35,6 +35,22 @@ interface NotificationItem {
   read: boolean;
 }
 
+/** Short relative time for Frappe datetimes ("2026-02-25 14:39:24.589936"). */
+function formatRelativeTime(value: string): string {
+  if (!value) return '';
+  const d = new Date(value.replace(' ', 'T').slice(0, 19));
+  if (isNaN(d.getTime())) return value;
+  const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+}
+
 /**
  * Frappe's Notification Log stores `email_content` as HTML (built for email
  * rendering). Strip tags for the compact drawer preview instead of trusting
@@ -56,13 +72,14 @@ export const Header: React.FC = () => {
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [userInfo, setUserInfo] = useState({ fullName: 'Admin User', email: 'admin@urypos.com' });
 
   const userMenuRef = useRef<HTMLDivElement>(null);
   const branchMenuRef = useRef<HTMLDivElement>(null);
   const companyMenuRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 
   const handleClickOutside = useCallback((event: MouseEvent) => {
     if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
@@ -102,9 +119,13 @@ export const Header: React.FC = () => {
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
+        const userId = await getLoggedUser();
+        if (!userId) return;
         const res = await call('frappe.client.get_list', {
           doctype: 'Notification Log',
+          filters: { for_user: userId },
           fields: ['name', 'subject', 'email_content', 'creation', 'read'],
+          order_by: 'creation desc',
           limit_page_length: 5
         });
         if (res && res.message) {
@@ -122,11 +143,28 @@ export const Header: React.FC = () => {
         console.error('Failed to fetch notifications', e);
       }
     };
+    const fetchUnreadCount = async () => {
+      try {
+        const userId = await getLoggedUser();
+        if (!userId) return;
+        const res = await call('frappe.client.get_count', {
+          doctype: 'Notification Log',
+          filters: { for_user: userId, read: 0 }
+        });
+        if (res && typeof res.message === 'number') {
+          setUnreadCount(res.message);
+        }
+      } catch (e) {
+        console.error('Failed to fetch unread notification count', e);
+      }
+    };
     fetchNotifications();
+    fetchUnreadCount();
   }, []);
 
   const handleMarkAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
   const handleClearCache = () => {
@@ -307,7 +345,9 @@ export const Header: React.FC = () => {
           >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold leading-none bg-primary text-white rounded-full ring-2 ring-background">
+                {formatBadge(unreadCount)}
+              </span>
             )}
           </button>
 
@@ -390,7 +430,7 @@ export const Header: React.FC = () => {
                   <h2 className="text-base font-semibold text-foreground">Notifications</h2>
                   {unreadCount > 0 && (
                     <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white rounded-full">
-                      {unreadCount}
+                      {formatBadge(unreadCount)}
                     </span>
                   )}
                 </div>
@@ -423,8 +463,9 @@ export const Header: React.FC = () => {
                   notifications.map((item) => (
                     <div
                       key={item.id}
-                      className={`p-4 transition-colors ${item.read ? 'bg-card' : 'bg-primary-tint/40'
-                        }`}
+                      className={`p-4 transition-colors ${
+                        item.read ? 'bg-card' : 'bg-primary-tint border-l-2 border-primary'
+                      }`}
                     >
                       <div className="flex items-start space-x-3">
                         <div className="mt-0.5">
@@ -435,8 +476,16 @@ export const Header: React.FC = () => {
 
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                            <span className="text-xs text-text-tertiary">{item.timestamp}</span>
+                            <p className={`text-sm flex items-center gap-2 ${item.read ? 'font-normal text-muted-foreground' : 'font-semibold text-foreground'}`}>
+                              {!item.read && (
+                                <>
+                                  <span aria-hidden="true" className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                                  <span className="sr-only">Unread: </span>
+                                </>
+                              )}
+                              {item.title}
+                            </p>
+                            <span className="text-xs text-text-tertiary">{formatRelativeTime(item.timestamp)}</span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">{item.message}</p>
                         </div>

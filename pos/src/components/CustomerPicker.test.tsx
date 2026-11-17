@@ -8,6 +8,7 @@ import type { Customer } from '../store/pos-store';
 vi.mock('../lib/customer-api', () => ({
   searchCustomers: vi.fn(),
   addCustomer: vi.fn(),
+  getCustomersByOrderType: vi.fn(),
 }));
 
 vi.mock('../store/pos-store', () => ({
@@ -100,9 +101,10 @@ vi.mock('@ury/ui', () => ({
   },
 }));
 
-import { searchCustomers, addCustomer } from '../lib/customer-api';
+import { searchCustomers, getCustomersByOrderType } from '../lib/customer-api';
 
 const mockSearchCustomers = searchCustomers as ReturnType<typeof vi.fn>;
+const mockGetCustomersByOrderType = getCustomersByOrderType as ReturnType<typeof vi.fn>;
 
 describe('CustomerPicker', () => {
   const mockCustomer: Customer = {
@@ -223,6 +225,24 @@ describe('CustomerPicker', () => {
       expect(screen.getByText('John Doe')).toBeTruthy();
     }, { timeout: 1500 });
     expect(mockSearchCustomers).toHaveBeenCalledWith('', 10);
+  });
+
+  it('filters customers by order type when one is selected', async () => {
+    mockGetCustomersByOrderType.mockResolvedValueOnce([
+      { name: 'CUST-002', content: 'Customer Name : Jane Doe | Mobile Number : 1234567890' },
+    ]);
+
+    render(
+      <CustomerPicker
+        value={null}
+        onChange={vi.fn()}
+        orderType="Dine In"
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockGetCustomersByOrderType).toHaveBeenCalledWith('Dine In', '');
+    }, { timeout: 1000 });
   });
 
   it('disables search input when disabled prop is true', () => {

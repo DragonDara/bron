@@ -176,6 +176,12 @@
                       >
                     </div>
                     <div>
+                      <span
+                        data-testid="kot-item-status"
+                        class="ml-2 px-1.5 py-0.5 rounded text-xs font-semibold"
+                        :style="itemStatusStyle(kotitem.state)"
+                        >{{ itemStatusLabel(kotitem.state) }}</span
+                      >
                       <span class="ml-2" style="font-family: var(--m); font-variant-numeric: tabular-nums">{{ kotitem.qty }}</span>
                     </div>
                   </div>
@@ -295,6 +301,13 @@ let port = window.location.port;
 let protocol = window.location.protocol;
 let url = port ? `${protocol}//${host}:${port}` : `${protocol}//${host}`;
 window.globalSiteName = '';
+// Same semantics as POS badges: queued=red, preparing=amber, ready=info(blue), served=green.
+const ITEM_STATUS = {
+  QUEUED: { label: "Queued", bg: "var(--rd-t)", fg: "var(--rd)", bd: "var(--rd-b)" },
+  IN_PREPARATION: { label: "Preparing", bg: "var(--am-t)", fg: "var(--am)", bd: "var(--am-b)" },
+  READY: { label: "Ready", bg: "#EAF2FB", fg: "#1D5FA8", bd: "#C3D9F0" },
+  SERVED: { label: "Served", bg: "var(--gr-t)", fg: "var(--gr)", bd: "var(--gr-b)" },
+};
 let socket; 
 
 async function fetchAndSetSiteName() {
@@ -413,6 +426,13 @@ export default {
           reject(error);
         }
       });
+    },
+    itemStatusLabel(state) {
+      return ITEM_STATUS[state || "QUEUED"]?.label || "Queued";
+    },
+    itemStatusStyle(state) {
+      const s = ITEM_STATUS[state || "QUEUED"] || ITEM_STATUS.QUEUED;
+      return { background: s.bg, color: s.fg, border: `1px solid ${s.bd}` };
     },
     rotateCard(kot) {
       this.masonryLoading();
@@ -614,9 +634,17 @@ export default {
       });
     },
     calculateQty(kotitem, qty, type, cancelled_qty) {
-      kotitem.qty = qty;
+      // quantity / cancelled_qty are Data (string) fields on URY KOT Items and
+      // cancelled_qty is null/absent on rows that never recorded it, so coerce
+      // explicitly instead of relying on implicit JS arithmetic (-> NaN).
+      const toNum = (v) => {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const total = toNum(qty);
+      kotitem.qty = total;
       if (type == "Partially cancelled" || type == "Cancelled") {
-        kotitem.qty = qty - cancelled_qty;
+        kotitem.qty = total - toNum(cancelled_qty);
       }
     },
     removeAllItemsFromLocalStorage(kot) {
