@@ -12,7 +12,10 @@
  */
 type Messages = Record<string, string>;
 
-type FrappeWindow = { frappe?: { boot?: { __messages?: Messages } } };
+type FrappeWindow = {
+  frappe?: { boot?: { __messages?: Messages } };
+  __?: (source: string, params?: ReadonlyArray<string | number>) => string;
+};
 
 function messages(): Messages | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -38,4 +41,9 @@ export function uiLocale(): string | undefined {
 export function isRtl(): boolean {
   if (typeof document === 'undefined') return false;
   return document.documentElement.dir === 'rtl';
+}
+
+if (typeof window !== 'undefined') {
+  const appWindow = window as unknown as FrappeWindow;
+  appWindow.__ ??= __;
 }

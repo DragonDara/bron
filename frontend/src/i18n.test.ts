@@ -4,6 +4,10 @@ import { __, isRtl } from './i18n';
 const w = window as unknown as { frappe?: { boot?: { __messages?: Record<string, string> } } };
 
 describe('__', () => {
+  it('exposes the helper as a browser global for app labels', () => {
+    expect((window as unknown as { __?: typeof __ }).__).toBe(__);
+  });
+
   afterEach(() => {
     delete w.frappe;
     document.documentElement.dir = 'ltr';
