@@ -67,6 +67,7 @@ export interface PosProfileCombined {
   custom_enable_credit_settlement?: number;
   custom_roles_allowed_for_credit?: RolePermission[];
   custom_credit_mode_of_payment?: string | null;
+  custom_disable_print_status_tracking?: number | boolean;
 }
 
 export const isPrintStatusDisabled = (

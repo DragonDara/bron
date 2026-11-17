@@ -1,6 +1,6 @@
 import { DOCTYPES } from '../data/doctypes';
 import { call, db } from '@ury/core';
-import type { DefaultCustomerEntry } from '@ury/core/default-customer';
+import type { DefaultCustomerEntry } from '@ury/core';
 
 // Limited fields response
 export interface PosProfileLimited {

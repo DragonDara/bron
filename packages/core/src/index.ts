@@ -2,6 +2,7 @@ export { createFrappeClient, call, db, auth } from './frappe/client';
 export { getLoggedUser, getUserRoles, logout, login } from './frappe/auth';
 export {
   isUserRestrictedFromTableOrders,
+  shouldMaskAmounts,
   canCaptainTransfer,
   canOrderOnBehalf,
   canSettleOnCredit,
@@ -52,6 +53,8 @@ export type {
 } from './utils/defaultCustomer';
 export { validateFieldValue } from './utils/validateField';
 export type { ValidationMessages } from './utils/validateField';
+export { validatePhoneNumber, sanitizePhoneNumber, getCountryCallingCode, COUNTRY_CALLING_CODES } from './utils/phoneValidation';
+export type { PhoneValidationResult } from './utils/phoneValidation';
 export {
   resolveUryLanguage,
   setUryLanguage,

@@ -80,18 +80,18 @@ describe('site currency resolution and Saudi riyal sign (@ury/core)', () => {
     vi.restoreAllMocks();
   });
 
-  it('INR default is unchanged when there is no boot', () => {
+  it('does not assume a currency when there is no boot', () => {
     expect(siteCurrencyCode()).toBeNull();
-    expect(formatCurrency(1234567.5)).toBe('₹ 12,34,567.5');
-    expect(formatCompactCurrency(600000)).toBe('₹6L');
+    expect(formatCurrency(1234567.5)).toBe('1,234,567.5');
+    expect(formatCompactCurrency(600000)).toBe('600K');
   });
 
   it('uses the site currency from the boot payload when none is passed', () => {
     setBoot('USD');
     expect(siteCurrencyCode()).toBe('USD');
     expect(formatCurrency(1234.5, { code: 'USD', symbol: '$' })).toBe('$ 1,234.5');
-    expect(formatCurrency(1234567)).toBe('USD 1,234,567');
-    expect(formatCompactCurrency(2500000)).toBe('USD2.5M');
+    expect(formatCurrency(1234567)).toBe('$ 1,234,567');
+    expect(formatCompactCurrency(2500000)).toBe('$2.5M');
   });
 
   it('SAR always renders the official sign, whatever the Currency doc holds', () => {
@@ -118,9 +118,9 @@ describe('site currency resolution and Saudi riyal sign (@ury/core)', () => {
 
   it('Arabic lang attribute also counts as RTL; LTR leaves no isolation marks', () => {
     document.documentElement.setAttribute('lang', 'ar');
-    expect(formatCurrency(10, 'USD')).toBe('\u206610 USD\u2069');
+    expect(formatCurrency(10, 'USD')).toBe('\u206610 $\u2069');
     document.documentElement.setAttribute('lang', 'en');
-    expect(formatCurrency(10, 'USD')).toBe('USD 10');
+    expect(formatCurrency(10, 'USD')).toBe('$ 10');
   });
 });
 

@@ -20,6 +20,7 @@ export interface CurrencyInfo {
 
 /** A scope covering more than one currency must not display a guessed symbol. */
 export const MIXED_CURRENCY: CurrencyInfo = Object.freeze({ code: null, symbol: null });
+export const SAR_SIGN = '\u20C1';
 
 let activeCurrency: CurrencyInfo | undefined;
 let profileCurrency: CurrencyInfo | undefined;
@@ -61,6 +62,10 @@ export function getCurrencyCode(): string {
   return profileCurrency?.code || getCurrencyBoot()?.sysdefaults?.currency || '';
 }
 
+export function siteCurrencyCode(): string | null {
+  return getCurrencyBoot()?.sysdefaults?.currency || null;
+}
+
 export function getCurrencySymbol(currency = getCurrencyCode()): string {
   if (!currency) return '';
   if (activeCurrency?.code === currency && activeCurrency.symbol) return activeCurrency.symbol;
@@ -80,6 +85,25 @@ export function getCurrencySymbol(currency = getCurrencyCode()): string {
   } catch {
     return currency;
   }
+}
+
+export function currencyDisplaySymbol(code: string | null | undefined, docSymbol?: string | null): string {
+  if (!code) return docSymbol || '';
+  if (code === 'SAR') return SAR_SIGN;
+  return docSymbol || getCurrencySymbol(code) || code;
+}
+
+function isRtlUi(): boolean {
+  if (typeof document === 'undefined') return false;
+  const root = document.documentElement;
+  return root.dir === 'rtl' || root.lang.toLowerCase().startsWith('ar');
+}
+
+function joinMoney(symbol: string, amount: string, gap = ' '): string {
+  if (!symbol) return amount;
+  return isRtlUi()
+    ? `\u2066${amount}${gap}${symbol}\u2069`
+    : `${symbol}${gap}${amount}`;
 }
 
 /** Site grouping takes precedence; UI language supplies grouping otherwise. */
@@ -134,8 +158,12 @@ export function formatCurrency(amount: number, currency?: CurrencyInfo | string 
     : String(amount);
 
   if (!info?.code) return formatted;
-  const symbol = info.symbol || getCurrencySymbol(info.code) || info.code;
-  return `${symbol} ${formatted}`;
+  const symbol = currencyDisplaySymbol(info.code, info.symbol || getCurrencySymbol(info.code) || info.code);
+  return joinMoney(symbol, formatted);
+}
+
+export function formatFixedAmount(amount: number): string {
+  return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function trimCompactValue(value: number): string {
@@ -148,7 +176,9 @@ function trimCompactValue(value: number): string {
 /** Compact currency for chart axes/labels, using lakh/crore for INR. */
 export function formatCompactCurrency(amount: number, currency?: CurrencyInfo | string | null): string {
   const info = resolveCurrency(currency);
-  const symbol = info?.code ? info.symbol || getCurrencySymbol(info.code) || info.code : '';
+  const symbol = info?.code
+    ? currencyDisplaySymbol(info.code, info.symbol || getCurrencySymbol(info.code) || info.code)
+    : '';
   if (typeof amount !== 'number' || !Number.isFinite(amount)) {
     return symbol ? `${symbol} ${amount}` : String(amount);
   }
@@ -156,17 +186,17 @@ export function formatCompactCurrency(amount: number, currency?: CurrencyInfo | 
   const sign = amount < 0 ? '-' : '';
   const abs = Math.abs(amount);
   if (info?.code === 'INR') {
-    if (abs >= 1_00_00_000) return `${sign}${symbol}${trimCompactValue(abs / 1_00_00_000)}Cr`;
-    if (abs >= 1_00_000) return `${sign}${symbol}${trimCompactValue(abs / 1_00_000)}L`;
-    if (abs >= 1_000) return `${sign}${symbol}${trimCompactValue(abs / 1_000)}k`;
-    return `${sign}${symbol}${trimCompactValue(abs)}`;
+    if (abs >= 1_00_00_000) return joinMoney(symbol, `${sign}${trimCompactValue(abs / 1_00_00_000)}Cr`, '');
+    if (abs >= 1_00_000) return joinMoney(symbol, `${sign}${trimCompactValue(abs / 1_00_000)}L`, '');
+    if (abs >= 1_000) return joinMoney(symbol, `${sign}${trimCompactValue(abs / 1_000)}k`, '');
+    return joinMoney(symbol, `${sign}${trimCompactValue(abs)}`, '');
   }
 
   const compact = formatAmountParts(new Intl.NumberFormat(getAmountLocale(info?.code), {
     notation: 'compact',
     maximumFractionDigits: 2,
   }).formatToParts(abs));
-  return `${sign}${symbol}${compact}`;
+  return joinMoney(symbol, `${sign}${compact}`, '');
 }
 
 /**

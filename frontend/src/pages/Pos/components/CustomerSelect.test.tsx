@@ -51,8 +51,7 @@ vi.mock('./CustomerPicker', () => ({
         placeholder="Select customer"
       />
     </div>
-    );
-  },
+  ),
 }));
 
 describe('CustomerSelect', () => {
