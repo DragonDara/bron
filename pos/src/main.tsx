@@ -7,7 +7,14 @@ import { initPrinting, startDomI18n } from '@ury/core'
 import residualRussianTranslations from './i18n/dom.ru.json'
 import residualKazakhTranslations from './i18n/dom.kk.json'
 
-initPrinting({ signKey: '' })
+async function bootPrinting() {
+  const envKey = import.meta.env.VITE_QZ_SIGN_KEY
+  if (typeof envKey === 'string' && envKey.trim()) {
+    initPrinting({ signKey: envKey.trim() })
+    return
+  }
+}
+void bootPrinting()
 
 initI18n().then(() => {
   applyDocumentLocale()

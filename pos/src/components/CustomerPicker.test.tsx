@@ -115,6 +115,7 @@ describe('CustomerPicker', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchCustomers.mockResolvedValue([]);
   });
 
   it('renders search input when no customer is selected', () => {

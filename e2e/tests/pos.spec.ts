@@ -22,6 +22,13 @@ import { test, expect } from '@playwright/test';
  *    the app actually renders with no session at all.
  */
 
+const URY_E2E_USER = process.env.URY_E2E_USER ?? 'test@erpnext.com';
+const URY_E2E_PASSWORD = process.env.URY_E2E_PASSWORD ?? 'testpass123';
+const URY_E2E_ITEM = process.env.URY_E2E_ITEM ?? 'Appam';
+const URY_E2E_CUSTOMER = process.env.URY_E2E_CUSTOMER ?? 'jay';
+const URY_E2E_CASHIER = process.env.URY_E2E_CASHIER ?? 'cashier@example.com';
+const URY_E2E_CASHIER_PASSWORD = process.env.URY_E2E_CASHIER_PASSWORD ?? 'cashierpass123';
+
 test.describe('POS app', () => {
   test('loads and renders a recognizable app shell', async ({ page }) => {
     await page.goto('/pos/order');
@@ -50,8 +57,8 @@ test.describe('POS app', () => {
     // Real UI login (not an API shortcut) so this exercises the same
     // frappe.boot/csrf_token session-bootstrap path AuthGuard depends on.
     await page.goto('/login');
-    await page.fill('#login_email', 'test@erpnext.com');
-    await page.fill('#login_password', 'testpass123');
+    await page.fill('#login_email', URY_E2E_USER);
+    await page.fill('#login_password', URY_E2E_PASSWORD);
     await page.click('.btn-login');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
@@ -107,8 +114,8 @@ test.describe('POS app', () => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto('/login');
-    await page.fill('#login_email', 'test@erpnext.com');
-    await page.fill('#login_password', 'testpass123');
+    await page.fill('#login_email', URY_E2E_USER);
+    await page.fill('#login_password', URY_E2E_PASSWORD);
     await page.click('.btn-login');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
@@ -122,7 +129,7 @@ test.describe('POS app', () => {
 
     // Fresh table -> CaptainOrder.tsx defaults to "menu" mode (no existing
     // lines yet), so the menu grid (CaptainMenu.tsx) is already showing.
-    const menuItem = page.getByText('Appam', { exact: true }).first();
+    const menuItem = page.getByText(URY_E2E_ITEM, { exact: true }).first();
     await expect(menuItem).toBeVisible({ timeout: 10000 });
     await menuItem.click();
 
@@ -136,7 +143,99 @@ test.describe('POS app', () => {
     // Real assertion against CaptainOrder.tsx's own "New / Changed" section
     // and its literal order-line label format.
     await expect(page.getByRole('heading', { name: 'New / Changed' }).first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('+1 × Appam').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(`+1 × ${URY_E2E_ITEM}`).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('full flow: captain sends order, cashier pays it', async ({ page, browser }) => {
+    test.setTimeout(90000);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto('/login');
+    await page.fill('#login_email', URY_E2E_USER);
+    await page.fill('#login_password', URY_E2E_PASSWORD);
+    await page.click('.btn-login');
+    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
+
+    await page.goto('/pos/order');
+    await expect(page.getByRole('heading', { name: 'Tables' })).toBeVisible({ timeout: 15000 });
+
+    const freeTable = page.locator('button[type="button"]').filter({ hasText: 'Free' }).first();
+    await expect(freeTable).toBeVisible({ timeout: 10000 });
+
+    // Remember the table so the cashier can find this order.
+    const tableName = await freeTable.locator('span[title]').first().getAttribute('title');
+    await freeTable.click();
+    await expect(page).toHaveURL(/\/pos\/order\/table\//, { timeout: 10000 });
+
+    // Fresh table -> CaptainOrder.tsx defaults to "menu" mode (no existing
+    // lines yet), so the menu grid (CaptainMenu.tsx) is already showing.
+    const menuItem = page.getByText(URY_E2E_ITEM, { exact: true }).first();
+    await expect(menuItem).toBeVisible({ timeout: 10000 });
+    await menuItem.click();
+
+    // Order toggle's badge count (activeOrders.length) confirms the tap
+    // actually landed in the pos-store before we even switch views.
+    const orderTabButton = page.getByRole('button', { name: /^Order/ });
+    await expect(orderTabButton).toBeVisible({ timeout: 5000 });
+    await expect(orderTabButton).toContainText('1', { timeout: 5000 });
+    await orderTabButton.click();
+
+    // Real assertion against CaptainOrder.tsx's own "New / Changed" section
+    // and its literal order-line label format.
+    await expect(page.getByRole('heading', { name: 'New / Changed' }).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(`+1 × ${URY_E2E_ITEM}`).first()).toBeVisible({ timeout: 5000 });
+
+    // Pick a customer (sending is blocked without one).
+    const customerSearch = page.getByPlaceholder('Search customer...').filter({ visible: true });
+    await customerSearch.fill(URY_E2E_CUSTOMER);
+
+    const customerOption = page.getByText(URY_E2E_CUSTOMER).first();
+    await expect(customerOption).toBeVisible({ timeout: 10000 });
+    await customerOption.click();
+    await expect(customerSearch).not.toBeVisible();
+
+    // Tap the Send button.
+    const sendButton = page.getByRole('button', { name: 'Send Order' }).filter({ visible: true });
+    await sendButton.click();
+
+    // Check that the order is sent to the kitchen.
+    await expect(page.getByText('Order sent to kitchen.')).toBeVisible({ timeout: 10000 });
+
+    // Cashier: log in in a separate browser context.
+    const cashierContext = await browser.newContext();
+    const cashierPage = await cashierContext.newPage();
+
+    await cashierPage.goto('/login');
+    await cashierPage.fill('#login_email', URY_E2E_CASHIER);
+    await cashierPage.fill('#login_password', URY_E2E_CASHIER_PASSWORD);
+    await cashierPage.click('.btn-login');
+    await cashierPage.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
+
+    // Open the Orders page and the Unbilled filter.
+    await cashierPage.goto('/pos/orders');
+    await cashierPage.getByRole('button', { name: 'Unbilled', exact: true }).click();
+
+    // Find the order for the table with the title `tableName` and click it to open the order details.
+    await cashierPage.getByText(`Table ${tableName} •`).click();
+
+    // Check that the order details show the item `URY_E2E_ITEM` and the customer `URY_E2E_CUSTOMER`.
+    await expect(cashierPage.getByText(URY_E2E_ITEM, { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(cashierPage.getByText(URY_E2E_CUSTOMER, { exact: true }).last()).toBeVisible({ timeout: 10000 });
+
+    // Tap `print` button, then close the print tab.
+    const printTabPromise = cashierContext.waitForEvent('page');
+    await cashierPage.getByRole('button', { name: 'Print', exact: true }).click();
+    const printTab = await printTabPromise;
+    await printTab.close();
+    await expect(cashierPage.getByText('Printed successfully')).toBeVisible({ timeout: 10000 });
+
+    // Tap `Payment` and `Pay` buttons.
+    await cashierPage.getByRole('button', { name: 'Payment', exact: true }).click();
+    await cashierPage.getByRole('button', { name: /^Pay / }).click();
+
+    // Check that the green pop up `Payment successful` is visible.
+    await expect(cashierPage.getByText('Payment successful')).toBeVisible({ timeout: 10000 });
+    await cashierContext.close();
   });
 
   // Still genuinely out of scope for this pass (see EXECUTION_LOG.md Phase 5
