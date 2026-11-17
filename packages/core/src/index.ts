@@ -16,15 +16,21 @@ export {
   appLabelForPath,
   DESK_RETURN_PARAM,
   DESK_RETURN_LABEL_PARAM,
+  DESK_RETURN_STORAGE_KEY,
   RETURN_TO_ALLOWED_PREFIXES,
 } from './frappe/deskLink';
 export type { ReturnContext, BuildDeskUrlOptions } from './frappe/deskLink';
 export type { POSCapabilities } from './frappe/roles';
 export type { User, PosProfileCombined } from './types';
+export { isPrintStatusDisabled } from './types';
 export { storage } from './storage';
 export {
   formatCurrency,
   formatCompactCurrency,
+  formatFixedAmount,
+  siteCurrencyCode,
+  currencyDisplaySymbol,
+  SAR_SIGN,
   formatInvoiceTime,
   normalizeFrappeTime,
   getCurrencySymbol,
@@ -38,6 +44,12 @@ export {
 } from './format';
 export type { CurrencyInfo } from './format';
 export { initPrinting, loadQzPrinter, disconnectQzPrinter, printWithQz } from './print/qz';
+export { resolveDefaultCustomer, profileLacksDefaultCustomerConfig } from './utils/defaultCustomer';
+export type {
+  DefaultCustomerEntry,
+  DefaultCustomerConfig,
+  ResolvedDefaultCustomer,
+} from './utils/defaultCustomer';
 export { validateFieldValue } from './utils/validateField';
 export type { ValidationMessages } from './utils/validateField';
 export {

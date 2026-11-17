@@ -37,9 +37,12 @@ import { DayClosePage } from './pages/Dashboard/DayClosePage';
 import { KotErrorLogPage } from './pages/Dashboard/KotErrorLogPage';
 import { StockReservationPage } from './pages/Dashboard/StockReservationPage';
 import { PaymentTerminalPage } from './pages/Dashboard/PaymentTerminalPage';
+import { PrinterConfigPage } from './pages/Dashboard/PrinterConfigPage';
 import { RoleGuard } from './components/RoleGuard';
 import { AuthGuard } from './components/AuthGuard';
 import { Landing } from './components/Landing';
+import { NoAccess } from './components/NoAccess';
+import { URY_POS_ROUTES_ENABLED } from './lib/posRouteBlock';
 import { ReportsLayout } from './pages/Reports/ReportsLayout';
 import { ActiveReportProvider } from './components/chat/ActiveReportContext';
 import ChatWidget, {
@@ -92,7 +95,7 @@ function PosRouteFallback() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-3">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{__('Loading…')}</p>
       </div>
     </div>
   );
@@ -141,7 +144,7 @@ function SetupGuard() {
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{__('Loading…')}</p>
         </div>
       </div>
     );
@@ -283,6 +286,7 @@ function AppRoutes() {
           />
           <Route path="stock-reservations" element={<StockReservationPage />} />
           <Route path="payment-terminals" element={<PaymentTerminalPage />} />
+          <Route path="printer-config" element={<PrinterConfigPage />} />
 
           <Route
             path="reports/*"
@@ -369,42 +373,55 @@ function AppRoutes() {
         'URY Manager'-driven. Every other route above keeps the original
         SetupGuard -> RoleGuard -> AuthGuard chain unchanged.
       */}
-      <Route
-        path="pos"
-        element={
-          <Suspense fallback={<PosRouteFallback />}>
-            <PosLayout />
-          </Suspense>
-        }
-      >
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<PosDashboard />} />
-        <Route path="pos" element={<PosPOS />} />
-        <Route path="tables" element={<PosTable />} />
-        <Route path="orders" element={<PosOrders />} />
-        <Route path="settings" element={<PosSettings />} />
-        <Route path="open-entries" element={<PosOpenEntries />} />
-      </Route>
-      <Route
-        path="pos/order"
-        element={
-          <Suspense fallback={<PosRouteFallback />}>
-            <CaptainRouteGuard>
-              <CaptainTables />
-            </CaptainRouteGuard>
-          </Suspense>
-        }
-      />
-      <Route
-        path="pos/order/table/:table"
-        element={
-          <Suspense fallback={<PosRouteFallback />}>
-            <CaptainRouteGuard>
-              <CaptainOrder />
-            </CaptainRouteGuard>
-          </Suspense>
-        }
-      />
+      {/*
+        ####################################################################################
+        ##  /ury/pos/*  IS BLOCKED FOR ALL USERS FOR NOW  (see lib/posRouteBlock.ts)       ##
+        ####################################################################################
+        While `URY_POS_ROUTES_ENABLED` is false every `/pos` path renders "no access" and the
+        POS route tree below is not mounted. The server also returns 403 for these URLs
+        (`ury/www/ury.py`). Flip both switches to bring the routes back.
+      */}
+      {!URY_POS_ROUTES_ENABLED && <Route path="pos/*" element={<NoAccess />} />}
+      {URY_POS_ROUTES_ENABLED && (
+        <>
+        <Route
+          path="pos"
+          element={
+            <Suspense fallback={<PosRouteFallback />}>
+              <PosLayout />
+            </Suspense>
+          }
+        >
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<PosDashboard />} />
+          <Route path="pos" element={<PosPOS />} />
+          <Route path="tables" element={<PosTable />} />
+          <Route path="orders" element={<PosOrders />} />
+          <Route path="settings" element={<PosSettings />} />
+          <Route path="open-entries" element={<PosOpenEntries />} />
+        </Route>
+        <Route
+          path="pos/order"
+          element={
+            <Suspense fallback={<PosRouteFallback />}>
+              <CaptainRouteGuard>
+                <CaptainTables />
+              </CaptainRouteGuard>
+            </Suspense>
+          }
+        />
+        <Route
+          path="pos/order/table/:table"
+          element={
+            <Suspense fallback={<PosRouteFallback />}>
+              <CaptainRouteGuard>
+                <CaptainOrder />
+              </CaptainRouteGuard>
+            </Suspense>
+          }
+        />
+        </>
+      )}
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

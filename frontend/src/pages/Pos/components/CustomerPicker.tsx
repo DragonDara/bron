@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { UserPlus, Phone, Loader, ChevronDown } from 'lucide-react';
 import { Button, Dialog, DialogContent, Input } from '@ury/ui';
+import { validatePhoneNumber, getCountryCallingCode } from '@ury/core';
 
-import { addCustomer, type CreateCustomerData, searchCustomers, getCustomersByOrderType } from '../lib/customer-api';
+import { addCustomer, type CreateCustomerData, searchCustomers } from '../lib/customer-api';
 import { usePOSStore, type Customer } from '../store/pos-store';
 import { t } from '../i18n';
 
@@ -31,23 +32,43 @@ function NewCustomerForm({
   prefillName?: string;
   prefillPhone?: string;
 }) {
-  const { customerGroups, territories, fetchCustomerGroups, fetchTerritories } = usePOSStore();
+  const { customerGroups, territories, fetchCustomerGroups, fetchTerritories, posProfile } = usePOSStore();
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerGroup, setNewCustomerGroup] = useState('');
   const [newCustomerTerritory, setNewCustomerTerritory] = useState('');
   const [, setFormError] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [, setLoadingGroups] = useState(false);
   const [, setLoadingTerritories] = useState(false);
   const [localIsCreatingCustomer, setLocalIsCreatingCustomer] = useState(false);
   const isCreatingCustomer = parentIsCreatingCustomer ?? localIsCreatingCustomer;
   const setIsCreatingCustomer = setParentIsCreatingCustomer ?? setLocalIsCreatingCustomer;
 
+  const effectiveCountry =
+    posProfile?.country ||
+    (typeof window !== 'undefined' && ((window as any)?.frappe?.boot?.sysdefaults?.country || (window as any)?.frappe?.boot?.country)) ||
+    undefined;
+
   useEffect(() => {
     if (prefillName) setNewCustomerName(prefillName);
-    if (prefillPhone) setNewCustomerPhone(prefillPhone);
-  }, [prefillName, prefillPhone]);
+    const callingCode = getCountryCallingCode(effectiveCountry);
+    if (prefillPhone) {
+      if (callingCode && !prefillPhone.startsWith('+')) {
+        const codeDigits = callingCode.replace('+', '');
+        if (!prefillPhone.startsWith(codeDigits)) {
+          setNewCustomerPhone(`${callingCode}${prefillPhone}`);
+        } else {
+          setNewCustomerPhone(`+${prefillPhone}`);
+        }
+      } else {
+        setNewCustomerPhone(prefillPhone);
+      }
+    } else if (callingCode) {
+      setNewCustomerPhone(callingCode);
+    }
+  }, [prefillName, prefillPhone, effectiveCountry]);
 
   useEffect(() => {
     if (!customerGroups.length) {
@@ -62,19 +83,40 @@ function NewCustomerForm({
 
   async function handleAddCustomerSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!newCustomerName || !newCustomerPhone) {
+    const callingCode = getCountryCallingCode(effectiveCountry);
+    const callingCodeDigits = callingCode.replace('+', '');
+    const digitsOnly = newCustomerPhone.replace(/\D/g, '');
+    const isOnlyCallingCode = Boolean(
+      callingCode &&
+      digitsOnly === callingCodeDigits &&
+      (newCustomerPhone.trim() === callingCode || newCustomerPhone.trim() === `+${callingCodeDigits}` || newCustomerPhone.trim() === callingCodeDigits)
+    );
+
+    if (!newCustomerName || !newCustomerPhone || isOnlyCallingCode) {
       setFormError(true);
+      if (isOnlyCallingCode) {
+        setPhoneError('Mobile number is required');
+      }
+      return;
+    }
+
+    const phoneValidation = validatePhoneNumber(newCustomerPhone, effectiveCountry);
+    if (!phoneValidation.isValid) {
+      setPhoneError(phoneValidation.message);
+      setApiError('');
       return;
     }
 
     setFormError(false);
+    setPhoneError('');
     setApiError('');
     setIsCreatingCustomer(true);
 
     try {
       const customerData: CreateCustomerData = {
         customer_name: newCustomerName.trim(),
-        mobile_number: newCustomerPhone.trim(),
+        mobile_number: phoneValidation.sanitized || newCustomerPhone.trim(),
+        pos_profile: posProfile?.name,
       };
       if (newCustomerGroup) customerData.customer_group = newCustomerGroup;
       if (newCustomerTerritory) customerData.territory = newCustomerTerritory;
@@ -87,7 +129,8 @@ function NewCustomerForm({
         phone: created.mobile_number,
       });
       setNewCustomerName('');
-      setNewCustomerPhone('');
+      setNewCustomerPhone(callingCode || '');
+      setPhoneError('');
       setNewCustomerGroup('');
       setNewCustomerTerritory('');
       onSuccess?.();
@@ -128,13 +171,20 @@ function NewCustomerForm({
             id="new-customer-phone"
             type="tel"
             value={newCustomerPhone}
-            onChange={(e) => setNewCustomerPhone(e.target.value)}
+            onChange={(e) => {
+              setNewCustomerPhone(e.target.value);
+              if (phoneError) setPhoneError('');
+              if (apiError) setApiError('');
+            }}
             required
             disabled={isCreatingCustomer}
             className="pl-10"
           />
           <Phone className="absolute left-3 top-2.5 h-5 w-5 text-text-tertiary" />
         </div>
+        {phoneError && (
+          <p className="mt-1 text-xs text-destructive">{phoneError}</p>
+        )}
       </div>
       <div className="flex gap-3 mt-6">
         <Button type="submit" variant="default" className="flex-1" disabled={isCreatingCustomer}>
@@ -205,7 +255,7 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
         });
     }, term ? 300 : 0);
     return () => clearTimeout(handler);
-  }, [searchTerm, isOpen, orderType]);
+  }, [searchTerm, isOpen]);
 
   const parseCustomer = (customer: { name: string; content?: string }): Customer => ({
     id: customer.name,
@@ -285,11 +335,6 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
                 </div>
               )}
               {searchError && <div className="p-4 text-center text-[12px] text-destructive">{searchError}</div>}
-              {!isSearching && orderType && !searchTerm.trim() && searchResults.length > 0 && (
-                <div className="px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary bg-muted/40 border-b border-hair">
-                  {orderType} Customers
-                </div>
-              )}
               {searchResults.map((customer, idx) => {
                 const parsed = parseCustomer(customer);
                 return (

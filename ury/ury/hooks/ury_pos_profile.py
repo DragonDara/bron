@@ -8,6 +8,8 @@ from ury.ury.utils.print_format_scope import (
     validate_print_format_doctype,
 )
 
+from ury.ury_pos.default_customer import validate_order_type_customers
+
 
 def validate(doc, method):
     validate_bill_check(doc, method)

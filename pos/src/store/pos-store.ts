@@ -48,6 +48,14 @@ export interface Customer {
   phone: string;
 }
 
+/**
+ * Where the current customer came from:
+ *  - 'auto'   preselected from the POS Profile default for the order type; follows order-type changes
+ *  - 'manual' picked or cleared by the user; never overwritten by order-type changes
+ *  - 'order'  loaded from an existing order; never overwritten
+ */
+export type CustomerSource = 'auto' | 'manual' | 'order';
+
 export interface OrderItem extends MenuItem {
   quantity: number;
   selectedVariant?: { id: string; name: string; price: number };
@@ -181,6 +189,8 @@ interface POSStore extends POSState {
   setSelectedPerformer: (employee: string | null) => void;
   setSelectedTable: (table: string | null, room: string | null, doNotLoadOrder?: boolean) => void;
   setSelectedOrderType: (type: OrderType) => void;
+  /** Preselect the profile's default customer for the current order type (new, non-manual orders only). */
+  applyAutoCustomer: () => void;
   setQuickFilter: (filter: 'all' | 'special') => void;
   setSelectedItem: (item: MenuItem | null) => void;
   initializeCart: () => Promise<void>;
@@ -377,8 +387,8 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       setCurrency(combinedProfile.currency);
       
       sessionStorage.setItem('posProfile', JSON.stringify(combinedProfile));
-      set({ 
-        posProfile: combinedProfile, 
+      set({
+        posProfile: combinedProfile,
         profileLoading: false,
         currency: combinedProfile.currency || getCurrencyCode()
       });
@@ -386,9 +396,9 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       await get().fetchCurrencySymbol();
     } catch (error) {
       console.error('Error fetching POS profile:', error);
-      set({ 
+      set({
         error: 'Failed to fetch POS profile',
-        profileLoading: false 
+        profileLoading: false
       });
     }
   },
@@ -633,13 +643,20 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     }
   },
   setSelectedOrderType: (type) => {
-    const { fetchMenuItems } = get();
-    
+    const { fetchMenuItems, isUpdatingOrder, customerSource, posProfile } = get();
+
+    // Re-resolve the default customer only while it is auto-set on a new order.
+    // A manual pick, a customer loaded from an existing order, and any customer
+    // on an order being updated are never touched. Aggregators resolve to null
+    // (the aggregator flow owns its customer).
+    const followDefault = !isUpdatingOrder && customerSource === 'auto';
+
     set({ 
       activeOrders: [],
       selectedOrderType: type,
       isUpdatingOrder: false,
-      orderId: null
+      orderId: null,
+      ...(followDefault ? { selectedCustomer: resolveDefaultCustomer(type, posProfile) } : {}),
     });
     
     if (type !== 'Aggregators') {
@@ -789,6 +806,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   clearTableOrder: () => {
+    const { selectedOrderType, posProfile } = get();
     set({
       tableOrder: null,
       activeOrders: [],
@@ -811,7 +829,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   resetOrderState: () => {
-    const { fetchMenuItems } = get();
+    const { fetchMenuItems, posProfile } = get();
     
     set({
       selectedCustomer: null,

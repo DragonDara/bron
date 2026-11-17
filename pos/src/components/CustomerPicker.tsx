@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { CustomerPicker as CustomerPickerView, type CustomerOption } from '@ury/ui';
-import { addCustomer, searchCustomers, getCustomersByOrderType } from '../lib/customer-api';
-import { type Customer } from '../store/pos-store';
+import { addCustomer, searchCustomers } from '../lib/customer-api';
+import { type Customer, usePOSStore } from '../store/pos-store';
+import { useRootStore } from '../store/root-store';
 import { t } from '../i18n';
 
 export interface CustomerPickerProps {
@@ -57,19 +58,6 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
       .finally(() => setSearching(false));
   }, []);
 
-  const handleSearch = useCallback(
-    (query: string) => {
-      fetchCustomers(query, orderType);
-    },
-    [fetchCustomers, orderType]
-  );
-
-  useEffect(() => {
-    if (orderType && typeof getCustomersByOrderType === 'function') {
-      fetchCustomers('', orderType);
-    }
-  }, [orderType, fetchCustomers]);
-
   return (
     <CustomerPickerView
       value={value}
@@ -79,11 +67,12 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
       searchError={searchError}
       onSearch={handleSearch}
       disabled={disabled}
-      resultsHeader={orderType ? `${orderType} Customers` : undefined}
+      country={country}
       onCreate={async ({ name, phone }) => {
         const response = await addCustomer({
           customer_name: name,
           mobile_number: phone,
+          pos_profile: posProfile?.name,
         });
         const created = response.data;
         if (!created.name) {
@@ -108,6 +97,7 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
         searchFailed: t('customer.failed_search'),
         searching: t('common.searching'),
         createTitle: t('customer.add_customer_title'),
+        invalidPhone: posProfile?.country ? t('customer.phone_invalid', { country: posProfile.country }) : undefined,
       }}
     />
   );

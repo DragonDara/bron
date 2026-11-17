@@ -11,6 +11,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { Button } from '@ury/ui';
+import { withReturnContext } from '@ury/core';
 import { t } from '../i18n';
 import type { OpeningBlockingState } from './POSOpeningProvider';
 import type { POSOpeningEntryRef } from '../lib/pos-opening-api';
@@ -57,7 +58,7 @@ const POSOpeningDialog = ({
     // Opens in a new tab, so the POS tab itself is still there to come back
     // to -- but the desk tab still gets a "Back to POS" chip via the return
     // context, since users routinely lose track of which tab is which.
-    window.open(`${window.location.origin}${withReturnContext('/app')}`, '_blank');
+    window.open(`${window.location.origin}${withReturnContext('/desk/ury')}`, '_blank');
   };
 
   const stateConfig: Record<OpeningBlockingState, StateConfig> = {
@@ -79,7 +80,7 @@ const POSOpeningDialog = ({
       primaryAction: onCloseNow
         ? {
             label: t('pos.opening.close_now'),
-            icon: <Lock className="w-5 h-5 mr-2" />,
+            icon: <Lock className="w-5 h-5 me-2" />,
             onClick: onCloseNow,
           }
         : undefined,
@@ -92,7 +93,7 @@ const POSOpeningDialog = ({
       description: message || t('pos.opening.contact_manager'),
       primaryAction: {
         label: t('pos.opening.retry'),
-        icon: <RefreshCw className="w-5 h-5 mr-2" />,
+        icon: <RefreshCw className="w-5 h-5 me-2" />,
         onClick: onRetry,
       },
     },
@@ -108,7 +109,7 @@ const POSOpeningDialog = ({
       }),
       primaryAction: {
         label: t('pos.opening.continue_to_pos'),
-        icon: <ArrowRight className="w-5 h-5 mr-2" />,
+        icon: <ArrowRight className="w-5 h-5 me-2" />,
         onClick: onContinue,
       },
     },
@@ -122,7 +123,7 @@ const POSOpeningDialog = ({
       description: t('pos.opening.contact_manager'),
       primaryAction: {
         label: t('pos.opening.retry'),
-        icon: <RefreshCw className="w-5 h-5 mr-2" />,
+        icon: <RefreshCw className="w-5 h-5 me-2" />,
         onClick: onRetry,
       },
     },
@@ -161,7 +162,7 @@ const POSOpeningDialog = ({
                 variant="outline"
                 className="w-full border-border text-gray-700 hover:bg-gray-50 font-medium py-3 px-6 rounded-lg transition-colors duration-200"
               >
-                <Monitor className="w-5 h-5 mr-2" />
+                <Monitor className="w-5 h-5 me-2" />
                 {t('pos.switch_to_desk')}
               </Button>
             )}

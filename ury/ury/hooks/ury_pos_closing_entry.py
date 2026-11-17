@@ -19,6 +19,19 @@ def validate(doc, method):
     validate_cashier(doc, method)
     validate_ported_checks(doc, method)
 
+def update_branch_avg_times(doc, method=None):
+    try:
+        branch = None
+        if doc.get("pos_opening_entry"):
+            branch = frappe.db.get_value("POS Opening Entry", doc.pos_opening_entry, "branch")
+        if not branch and doc.get("pos_profile"):
+            branch = frappe.db.get_value("POS Profile", doc.pos_profile, "branch")
+        if branch:
+            from ury.ury.report.average_table_time.average_table_time import update_branch_avg_table_times
+            update_branch_avg_table_times(branch)
+    except Exception as e:
+        frappe.log_error(f"Error updating branch average table times on POS Closing: {str(e)}", "POS Closing Avg Table Time")
+
 def populate_draft_stock_correction(doc):
     if doc.get("draft_stock_correction"):
         return
@@ -80,7 +93,7 @@ def validate_ported_checks(doc, method):
         wtg_query = """
             SELECT name
             FROM `tabURY Wastage`
-            WHERE docstatus = 1 AND branch = %s AND TIMESTAMP(posting_date, posting_time) >= %s AND TIMESTAMP(posting_date, posting_time) <= %s
+            WHERE docstatus = 1 AND branch = %s AND `datetime` >= %s AND `datetime` <= %s
         """
         wastage = frappe.db.sql(wtg_query, (branch, start_date, end_date), as_dict=True)
         if not wastage:

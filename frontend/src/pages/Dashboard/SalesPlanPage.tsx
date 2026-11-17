@@ -23,6 +23,7 @@ import {
   SalesPlanItem,
   saveSalesPlanDraftQuantities,
 } from '../../services/salesPlan';
+import { __ } from '../../i18n';
 
 type PlanStatus =
   | 'Draft'
@@ -131,10 +132,10 @@ const PREPARE_POLL_INTERVAL_MS = 4000;
 const CAN_PREPARE_EXECUTION: ExecutionState[] = ['awaiting_materials', 'ready', 'failed'];
 
 const LIFECYCLE_STEPS: { key: string; label: string; matches: PlanStatus[] }[] = [
-  { key: 'draft', label: 'Draft', matches: ['Draft'] },
-  { key: 'review', label: 'Review', matches: ['Proposed', 'Submitted for Approval'] },
-  { key: 'approval', label: 'Approval', matches: ['Approved'] },
-  { key: 'production', label: 'Ready for Production', matches: ['Locked for Production'] },
+  { key: 'draft', label: __('Draft'), matches: ['Draft'] },
+  { key: 'review', label: __('Review'), matches: ['Proposed', 'Submitted for Approval'] },
+  { key: 'approval', label: __('Approval'), matches: ['Approved'] },
+  { key: 'production', label: __('Ready for Production'), matches: ['Locked for Production'] },
 ];
 
 // Each entry describes the single next-action button shown for a given
@@ -143,23 +144,23 @@ const LIFECYCLE_STEPS: { key: string; label: string; matches: PlanStatus[] }[] =
 // surfaces only one obvious next step at a time rather than every possible
 // transition, per product direction.
 const NEXT_ACTION: Partial<Record<PlanStatus, { label: string; targetState: PlanStatus; icon: React.ElementType; managerOnly?: boolean }>> = {
-  Draft: { label: 'Submit for Review', targetState: 'Proposed', icon: Send },
-  Proposed: { label: 'Submit for Approval', targetState: 'Submitted for Approval', icon: Send },
-  'Submitted for Approval': { label: 'Approve', targetState: 'Approved', icon: CheckCircle2, managerOnly: true },
-  Approved: { label: 'Lock for Production', targetState: 'Locked for Production', icon: Lock },
+  Draft: { label: __('Submit for Review'), targetState: 'Proposed', icon: Send },
+  Proposed: { label: __('Submit for Approval'), targetState: 'Submitted for Approval', icon: Send },
+  'Submitted for Approval': { label: __('Approve'), targetState: 'Approved', icon: CheckCircle2, managerOnly: true },
+  Approved: { label: __('Lock for Production'), targetState: 'Locked for Production', icon: Lock },
 };
 
 // Backward actions that require a reason (Return to Draft, Supersede/Cancel).
 // These require the URY Sales Plan Controller role and a non-empty reason string.
 const BACKWARD_ACTIONS: Partial<Record<PlanStatus, { label: string; targetState: PlanStatus; icon: React.ElementType; destructive?: boolean }>> = {
-  Proposed: { label: 'Return to Draft', targetState: 'Draft', icon: RotateCcw },
-  'Submitted for Approval': { label: 'Return to Draft', targetState: 'Draft', icon: RotateCcw },
+  Proposed: { label: __('Return to Draft'), targetState: 'Draft', icon: RotateCcw },
+  'Submitted for Approval': { label: __('Return to Draft'), targetState: 'Draft', icon: RotateCcw },
   // Display label is just "Cancel" -- "Supersede/Cancel" is the backend
   // Workflow's internal action name (ury/fixtures/workflow.json), not
   // something a user needs to see; targetState is what actually drives the
   // API call, independent of this label.
-  Approved: { label: 'Cancel', targetState: 'Superseded/Cancelled', icon: X, destructive: true },
-  'Locked for Production': { label: 'Cancel', targetState: 'Superseded/Cancelled', icon: X, destructive: true },
+  Approved: { label: __('Cancel'), targetState: 'Superseded/Cancelled', icon: X, destructive: true },
+  'Locked for Production': { label: __('Cancel'), targetState: 'Superseded/Cancelled', icon: X, destructive: true },
 };
 
 const getToday = () => {
@@ -198,45 +199,45 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ item, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
-      <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" aria-label="Close history" onClick={onClose} />
+      <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" aria-label={__('Close history')} onClick={onClose} />
       <div className="relative z-[101] w-full max-w-2xl overflow-hidden rounded-lg bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border bg-muted px-6 py-4">
           <div>
             <h2 id="history-modal-title" className="text-lg font-semibold text-foreground">{item.item_name || item.item_code}</h2>
-            <p className="mt-1 text-sm text-text-tertiary">Comparable weekday sales history</p>
+            <p className="mt-1 text-sm text-text-tertiary">{__('Comparable weekday sales history')}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close history details">
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={__('Close history details')}>
             <X className="h-5 w-5" />
           </Button>
         </div>
         <div className="p-6">
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <div className="rounded-md border border-border p-3">
-              <p className="text-xs font-medium text-text-tertiary">Average</p>
+              <p className="text-xs font-medium text-text-tertiary">{__('Average')}</p>
               <p className="mt-1 text-xl font-semibold text-foreground">{formatQty(item.average_qty)} {item.stock_uom}</p>
             </div>
             <div className="rounded-md border border-border p-3">
-              <p className="text-xs font-medium text-text-tertiary">Sample Days</p>
+              <p className="text-xs font-medium text-text-tertiary">{__('Sample Days')}</p>
               <p className="mt-1 text-xl font-semibold text-foreground">{item.sample_days}</p>
             </div>
             <div className="rounded-md border border-border p-3">
-              <p className="text-xs font-medium text-text-tertiary">Production Unit</p>
-              <p className="mt-1 text-sm font-semibold text-foreground">{item.production_unit || 'Unassigned'}</p>
+              <p className="text-xs font-medium text-text-tertiary">{__('Production Unit')}</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{item.production_unit || __('Unassigned')}</p>
             </div>
           </div>
 
           {item.history.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-text-tertiary">
-              No prior comparable weekday sales found for this item.
+              {__('No prior comparable weekday sales found for this item.')}
             </div>
           ) : (
             (() => {
               const historyColumns: DataTableColumn<typeof item.history[0]>[] = [
-                { key: 'date', header: 'Date', render: (row) => row.label || row.date },
-                { key: 'qty', header: 'Net Qty', align: 'right', render: (row) => formatQty(row.qty) },
-                { key: 'invoices', header: 'Invoices', align: 'right', render: (row) => row.invoices ?? '-' },
+                { key: 'date', header: __('Date'), render: (row) => row.label || row.date },
+                { key: 'qty', header: __('Net Qty'), align: 'right', render: (row) => formatQty(row.qty) },
+                { key: 'invoices', header: __('Invoices'), align: 'right', render: (row) => row.invoices ?? '-' },
               ];
-              return <DataTable columns={historyColumns} rows={item.history} emptyMessage="No history found." />;
+              return <DataTable columns={historyColumns} rows={item.history} emptyMessage={__('No history found.')} />;
             })()
           )}
         </div>
@@ -281,16 +282,16 @@ const LifecycleStepper: React.FC<LifecycleStepperProps> = ({ status }) => {
   return (
     <div className="flex flex-1 flex-wrap items-center justify-between gap-y-2">
       {isTerminalOther ? (
-        <div className="flex items-center gap-2" role="list" aria-label="Sales Plan status">
-          <div role="listitem" className="flex items-center gap-2" title="Superseded/Cancelled">
+        <div className="flex items-center gap-2" role="list" aria-label={__('Sales Plan status')}>
+          <div role="listitem" className="flex items-center gap-2" title={__('Superseded/Cancelled')}>
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-destructive text-white">
               <X className="h-3.5 w-3.5" />
             </span>
-            <span className="text-[13px] font-semibold text-destructive">Superseded/Cancelled</span>
+            <span className="text-[13px] font-semibold text-destructive">{__('Superseded/Cancelled')}</span>
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 items-center" role="list" aria-label="Sales Plan status">
+        <div className="flex flex-1 items-center" role="list" aria-label={__('Sales Plan status')}>
           {LIFECYCLE_STEPS.map((step, index) => {
             const isActive = index === activeIndex;
             const isComplete = activeIndex >= 0 && index < activeIndex;
@@ -455,7 +456,7 @@ export const SalesPlanPage: React.FC = () => {
       // "all branches" plan. Fail closed with a clear, actionable message
       // instead of calling the API and surfacing its generic error.
       setItems([]);
-      setError('Select a specific branch above to view or edit its Sales Plan.');
+      setError(__('Select a specific branch above to view or edit its Sales Plan.'));
       setLoading(false);
       return () => {
         cancelled = true;
@@ -523,14 +524,14 @@ export const SalesPlanPage: React.FC = () => {
             // action ever renders, with no indication why.
             const message = statusErr instanceof Error ? statusErr.message : String(statusErr);
             if (!cancelled && /permission|not permitted|forbidden/i.test(message)) {
-              setTransitionError('You do not have permission to view this plan\'s approval status.');
+              setTransitionError(__("You do not have permission to view this plan's approval status."));
             }
           }
         }
       } catch (err) {
         if (!cancelled) {
           setItems([]);
-          setError('Unable to load comparable history for this plan.');
+          setError(__('Unable to load comparable history for this plan.'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -929,11 +930,11 @@ export const SalesPlanPage: React.FC = () => {
         const messages = (result.blockers ?? [])
           .map((b) => b.message || b.type || 'Blocked')
           .join('\n');
-        showToast.error(messages || 'Prepare Production is blocked until materials are available.');
+        showToast.error(messages || __('Prepare Production is blocked until materials are available.'));
       } else if (result.status === 'already_processing') {
-        showToast.error('Prepare Production is already running for this department.');
+        showToast.error(__('Prepare Production is already running for this department.'));
       } else {
-        showToast.success('Prepare Production started.');
+        showToast.success(__('Prepare Production started.'));
       }
       setPrepareConfirmDepartment(null);
       await refreshProductionPlanStates(planName);
@@ -966,16 +967,16 @@ export const SalesPlanPage: React.FC = () => {
           <span>{translate('Add item')}</span>
         </Button>
         {addItemOpen && (
-          <div className="absolute right-0 top-full z-30 mt-1 w-[380px] rounded-lg border border-border bg-card shadow-lg">
+          <div className="absolute end-0 top-full z-30 mt-1 w-[380px] rounded-lg border border-border bg-card shadow-lg">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
               <Search className="h-4 w-4 shrink-0 text-text-tertiary" />
               <input
                 ref={addItemInputRef}
                 id="add-item-search"
-                aria-label="Add item to plan"
+                aria-label={__('Add item to plan')}
                 value={addItemQuery}
                 onChange={(event) => setAddItemQuery(event.target.value)}
-                placeholder="Search the item catalog by name or code"
+                placeholder={__('Search the item catalog by name or code')}
                 className="h-8 flex-1 border-none bg-transparent text-sm text-foreground outline-none placeholder:text-text-tertiary"
               />
             </div>
@@ -985,7 +986,7 @@ export const SalesPlanPage: React.FC = () => {
                   <Spinner className="h-4 w-4 text-primary" />
                 </div>
               ) : addItemResults.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-text-tertiary">No matching items found.</p>
+                <p className="px-4 py-3 text-sm text-text-tertiary">{__('No matching items found.')}</p>
               ) : (
                 <ul>
                   {addItemResults.map((result) => (
@@ -993,7 +994,7 @@ export const SalesPlanPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleAddManualItem(result)}
-                        className="flex w-full flex-col items-start gap-0.5 px-4 py-2 text-left text-sm hover:bg-primary-tint"
+                        className="flex w-full flex-col items-start gap-0.5 px-4 py-2 text-start text-sm hover:bg-primary-tint"
                       >
                         <span className="font-medium text-foreground">{result.item_name || result.item_code}</span>
                         <span className="text-xs text-text-tertiary">
@@ -1051,12 +1052,12 @@ export const SalesPlanPage: React.FC = () => {
       // changes while it's open (e.g. via keyboard, bypassing the
       // outside-click dismissal a mouse interaction would have triggered
       // first) -- surface that instead of silently doing nothing.
-      setBackwardActionError('This plan is no longer available. Close this dialog and try again.');
+      setBackwardActionError(__('This plan is no longer available. Close this dialog and try again.'));
       return;
     }
     const reasonTrimmed = backwardActionReason.trim();
     if (!reasonTrimmed) {
-      setBackwardActionError('Reason is required for this action.');
+      setBackwardActionError(__('Reason is required for this action.'));
       return;
     }
     setBackwardActionError(null);
@@ -1107,15 +1108,15 @@ export const SalesPlanPage: React.FC = () => {
           <>
             <DatePicker
               id="plan-date"
-              aria-label="Plan date"
+              aria-label={__('Plan date')}
               value={planDate}
               onChange={(_id, next) => setPlanDate(next)}
               className="w-[180px]"
             />
             {isEditable && (
               <Select
-                aria-label="Enforcement Mode"
-                title="Hard: block order placement once plan_remaining hits 0. Soft: allow the order, over-plan status is computable from committed_qty + fulfilled_qty > qty. Alert: allow the order and notify branch-scoped Production Manager/URY Manager recipients when the plan is exceeded."
+                aria-label={__('Enforcement Mode')}
+                title={__('Hard: block order placement once plan_remaining hits 0. Soft: allow the order, over-plan status is computable from committed_qty + fulfilled_qty > qty. Alert: allow the order and notify branch-scoped Production Manager/URY Manager recipients when the plan is exceeded.')}
                 value={enforcementMode}
                 onChange={(event) => setEnforcementMode(event.target.value as 'Hard' | 'Soft' | 'Alert')}
                 disabled={loading || saving}
@@ -1129,7 +1130,7 @@ export const SalesPlanPage: React.FC = () => {
             {isEditable && (
               <Button onClick={saveDraft} disabled={loading || saving || !draftKey} variant="chrome" className="gap-2">
                 <Save className="h-4 w-4" />
-                <span>{saving ? 'Saving...' : 'Save Draft'}</span>
+                <span>{saving ? __('Saving...') : __('Save Draft')}</span>
               </Button>
             )}
             {currentAction && (
@@ -1138,15 +1139,15 @@ export const SalesPlanPage: React.FC = () => {
                 disabled={!canTransition || transitioning || actionBlockedByRole}
                 title={
                   actionBlockedByRole
-                    ? 'Only managers can approve a Sales Plan.'
+                    ? __('Only managers can approve a Sales Plan.')
                     : blockedAsEmptyPlan
-                      ? 'Set a quantity on at least one item before submitting this plan for review.'
+                      ? __('Set a quantity on at least one item before submitting this plan for review.')
                       : undefined
                 }
                 className="gap-2"
               >
                 <currentAction.icon className="h-4 w-4" />
-                <span>{transitioning ? 'Updating...' : currentAction.label}</span>
+                <span>{transitioning ? __('Updating...') : currentAction.label}</span>
               </Button>
             )}
             {/*
@@ -1170,8 +1171,8 @@ export const SalesPlanPage: React.FC = () => {
                 <Factory className="h-4 w-4" />
                 <span>
                   {ppCreateBusy
-                    ? 'Creating...'
-                    : `Create Production Plans (${departmentsWithoutLivePlan.length})`}
+                    ? __('Creating...')
+                    : __('Create Production Plans ({0})', [departmentsWithoutLivePlan.length])}
                 </span>
               </Button>
             )}
@@ -1193,7 +1194,7 @@ export const SalesPlanPage: React.FC = () => {
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <LifecycleStepper status={planStatus} />
               {actionBlockedByRole && (
-                <p className="text-xs text-text-tertiary">Only managers can approve this plan.</p>
+                <p className="text-xs text-text-tertiary">{__('Only managers can approve this plan.')}</p>
               )}
             </div>
 
@@ -1219,11 +1220,11 @@ export const SalesPlanPage: React.FC = () => {
       <Section>
         <KpiStrip
           items={[
-          { label: 'Planned Qty', value: formatQty(totalPlannedQty) },
-          { label: 'History Avg', value: formatQty(totalHistoryQty) },
-          { label: 'Items', value: items.length },
+          { label: __('Planned Qty'), value: formatQty(totalPlannedQty) },
+          { label: __('History Avg'), value: formatQty(totalHistoryQty) },
+          { label: __('Items'), value: items.length },
           ...(blockedItems.length > 0
-            ? [{ label: 'Blocked', value: blockedItems.length, tone: 'warning' as const }]
+            ? [{ label: __('Blocked'), value: blockedItems.length, tone: 'warning' as const }]
             : []),
         ]}
         />
@@ -1237,11 +1238,11 @@ export const SalesPlanPage: React.FC = () => {
               onClick={() => setAttentionExpanded((current) => !current)}
               aria-expanded={attentionExpanded}
               aria-controls="needs-attention-panel"
-              className="flex w-full items-center justify-between gap-2 px-3 py-[9px] text-left hover:bg-muted/60"
+              className="flex w-full items-center justify-between gap-2 px-3 py-[9px] text-start hover:bg-muted/60"
             >
               <span className="flex items-center gap-2">
                 {attentionExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                <span className="text-[12.5px] font-semibold text-foreground">Needs Attention</span>
+                <span className="text-[12.5px] font-semibold text-foreground">{__('Needs Attention')}</span>
                 <Badge variant="secondary" size="sm">
                   {blockedItems.length}
                 </Badge>
@@ -1262,7 +1263,7 @@ export const SalesPlanPage: React.FC = () => {
                           : 'No comparable sales history for this weekday'
                       }
                       action={{
-                        label: 'View item',
+                        label: __('View item'),
                         onClick: () => {
                           setSelectedItemDetailCode(item.item_code);
                         },
@@ -1278,13 +1279,13 @@ export const SalesPlanPage: React.FC = () => {
 
       <Section>
         <label className="relative mb-4 block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+          <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
           <Input
-            aria-label="Search item, department, or production unit"
+            aria-label={__('Search item, department, or production unit')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search item, department, or production unit"
-            className="w-full border-border-strong pl-9"
+            placeholder={__('Search item, department, or production unit')}
+            className="w-full border-border-strong ps-9"
           />
         </label>
       </Section>
@@ -1313,15 +1314,15 @@ export const SalesPlanPage: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 {Object.keys(groupedItems).length > 1 && (
                   <>
-                    <span className="flex shrink-0 items-center gap-1 pr-1 text-xs font-medium text-text-tertiary">
+                    <span className="flex shrink-0 items-center gap-1 pe-1 text-xs font-medium text-text-tertiary">
                       <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
-                      Jump to:
+                      {__('Jump to:')}
                     </span>
                     {Object.keys(groupedItems).map((department) => (
                       <button
                         key={department}
                         type="button"
-                        aria-label={`Jump to ${department}`}
+                        aria-label={__('Jump to {0}', [department])}
                         onClick={() => jumpToDepartment(department)}
                         className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-primary-tint"
                       >
@@ -1369,13 +1370,13 @@ export const SalesPlanPage: React.FC = () => {
             const departmentColumns: DataTableColumn<SalesPlanItem>[] = [
               {
                 key: 'item_code',
-                header: 'Item',
+                header: __('Item'),
                 render: (row) => (
                   <button
                     type="button"
                     onClick={() => setSelectedItemDetailCode(row.item_code)}
-                    className="rounded-md px-1 py-0.5 text-left hover:bg-primary-tint"
-                    aria-label={`View details for ${row.item_name || row.item_code}`}
+                    className="rounded-md px-1 py-0.5 text-start hover:bg-primary-tint"
+                    aria-label={__('View details for {0}', [row.item_name || row.item_code])}
                   >
                     <p className="font-semibold text-foreground">{row.item_name || row.item_code}</p>
                     <p className="mt-0.5 text-xs text-text-tertiary">{row.item_code}</p>
@@ -1384,28 +1385,28 @@ export const SalesPlanPage: React.FC = () => {
               },
               {
                 key: 'average_qty',
-                header: 'History Insight',
+                header: __('History Insight'),
                 render: (row) => (
                   <button
                     type="button"
                     onClick={() => setSelectedHistoryItem(row)}
-                    className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-left text-primary hover:bg-primary-tint"
+                    className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-start text-primary hover:bg-primary-tint"
                   >
                     <History className="h-4 w-4" />
                     <span>
-                      Last {row.sample_days} comparable days avg {formatQty(row.average_qty)} {row.stock_uom}
+                      {__('Last')} {row.sample_days} {__('comparable days avg')} {formatQty(row.average_qty)} {row.stock_uom}
                     </span>
                   </button>
                 ),
               },
               {
                 key: 'production_unit',
-                header: 'Production Unit',
-                render: (row) => <span className="text-muted-foreground">{row.production_unit || 'Unassigned'}</span>,
+                header: __('Production Unit'),
+                render: (row) => <span className="text-muted-foreground">{row.production_unit || __('Unassigned')}</span>,
               },
               {
                 key: 'variance',
-                header: 'Variance',
+                header: __('Variance'),
                 align: 'right',
                 render: (row) => {
                   const variance = getVariance(row);
@@ -1504,13 +1505,13 @@ export const SalesPlanPage: React.FC = () => {
                             <Play className="h-3.5 w-3.5" />
                             <span>
                               {ppPrepareBusyDepartment === department
-                                ? 'Preparing...'
-                                : 'Prepare Production'}
+                                ? __('Preparing...')
+                                : __('Prepare Production')}
                             </span>
                           </Button>
                         )}
                       {productionState.execution_state === 'processing' && (
-                        <span className="text-xs text-muted-foreground">Processing…</span>
+                        <span className="text-xs text-muted-foreground">{__('Processing…')}</span>
                       )}
                       {productionState.can_open && (
                         <Button
@@ -1521,7 +1522,7 @@ export const SalesPlanPage: React.FC = () => {
                           className="gap-2"
                         >
                           <Factory className="h-3.5 w-3.5" />
-                          <span>{ppOpenBusyDepartment === department ? 'Opening...' : 'Open Production Plan'}</span>
+                          <span>{ppOpenBusyDepartment === department ? __('Opening...') : __('Open Production Plan')}</span>
                         </Button>
                       )}
                     </div>
@@ -1555,8 +1556,8 @@ export const SalesPlanPage: React.FC = () => {
                       className="rounded-none border-0"
                       toolbarLeft={
                         <Input
-                          aria-label={`Filter items in ${department}`}
-                          placeholder={`Filter ${department} items`}
+                          aria-label={__('Filter items in {0}', [department])}
+                          placeholder={__('Filter {0} items', [department])}
                           value={departmentFilters[department] || ''}
                           onChange={(event) =>
                             setDepartmentFilters((current) => ({ ...current, [department]: event.target.value }))
@@ -1579,7 +1580,7 @@ export const SalesPlanPage: React.FC = () => {
                       rowKey={(row) => row._rowKey}
                       editableColumn={{
                         key: 'planned_qty',
-                        header: 'Plan',
+                        header: __('Plan'),
                         align: 'right',
                         min: 0,
                         step: 0.01,
@@ -1589,13 +1590,13 @@ export const SalesPlanPage: React.FC = () => {
                       }}
                       editableColumnIndex={3}
                       csvContextColumns={[
-                        { header: 'Item Code', get: (row) => row.item_code },
-                        { header: 'Item Name', get: (row) => row.item_name || '' },
+                        { header: __('Item Code'), get: (row) => row.item_code },
+                        { header: __('Item Name'), get: (row) => row.item_name || '' },
                       ]}
-                      emptyMessage="No items for this department."
+                      emptyMessage={__('No items for this department.')}
                       rowTone={(row) => (row._rowKey === highlightedItemCode ? 'selected' : undefined)}
                       bulkSet={{
-                        label: 'Set all to 0',
+                        label: __('Set all to 0'),
                         value: 0,
                         onApply: (rows, value) => {
                           rows.forEach((row) => updatePlannedQty(row._rowKey, value));
@@ -1625,7 +1626,7 @@ export const SalesPlanPage: React.FC = () => {
                             setTruncationExpanded((current) => ({ ...current, [department]: !current[department] }))
                           }
                         >
-                          {isTruncationExpanded ? 'Show fewer' : `Show all ${visibleDepartmentItems.length} rows`}
+                          {isTruncationExpanded ? __('Show fewer') : __('Show all {0} rows', [visibleDepartmentItems.length])}
                         </Button>
                       </div>
                     )}
@@ -1666,7 +1667,7 @@ export const SalesPlanPage: React.FC = () => {
             <>
               <DialogHeader>
                 <DialogTitle>{currentBackwardAction.label}</DialogTitle>
-                <p className="text-sm text-text-tertiary">{planName || 'Sales Plan'}</p>
+                <p className="text-sm text-text-tertiary">{planName || __('Sales Plan')}</p>
               </DialogHeader>
               <div className="px-6">
                 <label htmlFor="backward-action-reason" className="mb-2 block text-sm font-medium text-foreground">
@@ -1676,7 +1677,7 @@ export const SalesPlanPage: React.FC = () => {
                   id="backward-action-reason"
                   value={backwardActionReason}
                   onChange={(event) => setBackwardActionReason(event.target.value)}
-                  placeholder="Please explain why you are performing this action..."
+                  placeholder={__('Please explain why you are performing this action...')}
                   className="h-24 resize-none"
                   disabled={backwardActionTransitioning}
                 />
@@ -1693,7 +1694,7 @@ export const SalesPlanPage: React.FC = () => {
                   onClick={closeBackwardActionModal}
                   disabled={backwardActionTransitioning}
                 >
-                  Cancel
+                  {__('Cancel')}
                 </Button>
                 <Button
                   type="button"
@@ -1707,7 +1708,7 @@ export const SalesPlanPage: React.FC = () => {
                       accessible name ("Return to Draft"/"Supersede/Cancel"),
                       ambiguous for screen readers and for anything selecting by
                       role+name. */}
-                  {backwardActionTransitioning ? 'Updating...' : 'Confirm'}
+                  {backwardActionTransitioning ? __('Updating...') : __('Confirm')}
                 </Button>
               </DialogFooter>
             </>
@@ -1720,7 +1721,7 @@ export const SalesPlanPage: React.FC = () => {
         onOpenChange={(open) => {
           if (!open && !ppPrepareBusyDepartment) setPrepareConfirmDepartment(null);
         }}
-        title="Prepare Production?"
+        title={__('Prepare Production?')}
         description={(() => {
           if (!prepareConfirmDepartment) return '';
           const plan = getDepartmentProductionState(prepareConfirmDepartment)?.production_plan;
@@ -1730,8 +1731,8 @@ export const SalesPlanPage: React.FC = () => {
             { department: prepareConfirmDepartment, plan: planSuffix },
           );
         })()}
-        cancelLabel="Cancel"
-        confirmLabel="Prepare Production"
+        cancelLabel={__('Cancel')}
+        confirmLabel={__('Prepare Production')}
         loadingLabel="Preparing…"
         isSubmitting={ppPrepareBusyDepartment === prepareConfirmDepartment && prepareConfirmDepartment !== null}
         onConfirm={confirmPrepareDepartmentProduction}

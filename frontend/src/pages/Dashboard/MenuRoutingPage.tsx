@@ -84,7 +84,7 @@ export const MenuRoutingPage: React.FC = () => {
     if (!activeBranchId || activeBranchId === 'all') {
       // Sellability is server-checked per branch (`get_item_availability`
       // requires a branch) -- there is no meaningful "all branches" merge.
-      setError('Select a specific branch above to check menu sellability.');
+      setError(__('Select a specific branch above to check menu sellability.'));
       setLoading(false);
       return () => {
         cancelled = true;
@@ -96,7 +96,7 @@ export const MenuRoutingPage: React.FC = () => {
         const company = await menuAvailabilityService.resolveDefaultCompany();
         if (cancelled) return;
         if (!company) {
-          setError('No company found for this workspace. Sellability cannot be checked without one.');
+          setError(__('No company found for this workspace. Sellability cannot be checked without one.'));
           setLoading(false);
           return;
         }
@@ -121,7 +121,7 @@ export const MenuRoutingPage: React.FC = () => {
         setFailedCount(failed.length);
       } catch {
         if (!cancelled) {
-          setError('Unable to check menu sellability for this branch.');
+          setError(__('Unable to check menu sellability for this branch.'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -166,11 +166,9 @@ export const MenuRoutingPage: React.FC = () => {
   return (
     <Page>
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Menu Sellability</h1>
+        <h1 className="text-xl font-semibold text-foreground">{__('Menu Sellability')}</h1>
         <p className="mt-1 text-sm text-text-tertiary">
-          Real per-item availability from the server (`get_item_availability`) -- which catalog items can&apos;t be
-          sold right now at this branch, and the server-reported reason. Station/recipe-version routing is not shown
-          here; that data does not exist in the backend yet.
+          {__("Real per-item availability from the server (`get_item_availability`) -- which catalog items can't be sold right now at this branch, and the server-reported reason. Station/recipe-version routing is not shown here; that data does not exist in the backend yet.")}
         </p>
       </div>
 
@@ -190,28 +188,28 @@ export const MenuRoutingPage: React.FC = () => {
             <KpiStrip
               items={[
                 {
-                  label: 'Items checked',
+                  label: __('Items checked'),
                   value: checkedItems.length,
                   hint: catalogCount > checkedItems.length + failedCount
                     ? translate('of {{count}} in catalog (capped at {{limit}})', { count: catalogCount, limit: ITEM_CHECK_LIMIT })
                     : translate('of {{count}} in catalog', { count: catalogCount }),
                 },
                 {
-                  label: 'Sellable',
+                  label: __('Sellable'),
                   value: sellableCount,
                   tone: 'success',
                 },
                 {
-                  label: 'Unsellable',
+                  label: __('Unsellable'),
                   value: unsellableItems.length,
                   tone: unsellableItems.length > 0 ? 'danger' : 'default',
                   hint: translate('Reasons: {{count}}', { count: reasonGroups.length }),
                 },
                 {
-                  label: 'Check failures',
+                  label: __('Check failures'),
                   value: failedCount,
                   tone: failedCount > 0 ? 'warning' : 'default',
-                  hint: failedCount > 0 ? 'Errored while checking -- excluded above' : 'None',
+                  hint: failedCount > 0 ? __('Errored while checking -- excluded above') : __('None'),
                 },
               ]}
             />
@@ -219,7 +217,7 @@ export const MenuRoutingPage: React.FC = () => {
 
           <Section>
             <AttentionFeed
-              title="Unsellable items"
+              title={__('Unsellable items')}
               items={
                 attentionItems.length > 0
                   ? attentionItems

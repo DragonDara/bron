@@ -31,12 +31,15 @@ app_include_js = [
     # Floating "Back to <App>" chip for users a URY SPA sent into the desk.
     # See ury/public/js/return_to_app.js and packages/core/src/frappe/deskLink.ts.
     "/assets/ury/js/return_to_app.js",
+    # Keep only the current section of the URY sidebar open.
+    "/assets/ury/js/sidebar_focus_section.js",
     "/assets/ury/js/remove_duplicates.js",
     "/assets/ury/js/journal_entry.js",
     "/assets/ury/js/round_off_limit_exceed.js",
     "/assets/ury/js/restrict_customer_group_change.js",
     "/assets/ury/js/ury_order_checklist.js",
     "/assets/ury/js/autofetch_fields.js",
+    "/assets/ury/js/insights_guard.js",
 ]
 
 # include js, css files in header of web template
@@ -86,6 +89,14 @@ website_route_rules = [
     {"from_route": "/ury/serve", "to_route": "serve"},
     {"from_route": "/ury/serve/", "to_route": "serve"},
     {"from_route": "/ury/serve/<path:app_path>", "to_route": "serve"},
+    # Chairman Brief PWA (executive slides) — same shape as Serve above; the
+    # /ury/brief itself is served by Huf (HUF App "brief", www_template brief_app); only the WhatsApp
+    # token landing page needs a route rule.
+    {"from_route": "/ury/brief/go", "to_route": "brief_app"},
+    # Pass-through rules so the /ury/<path> catch-all below does not swallow what Huf serves.
+    {"from_route": "/ury/brief/sw.js", "to_route": "ury/brief/sw.js"},
+    {"from_route": "/ury/brief/", "to_route": "ury/brief"},
+    {"from_route": "/ury/brief", "to_route": "ury/brief"},
     {"from_route": "/ury/<path:app_path>", "to_route": "ury"},
     {"from_route": "/setup-wizard", "to_route": "ury"},
     {"from_route": "/pos/<path:app_path>", "to_route": "pos"},
@@ -174,6 +185,7 @@ ury_demo_transaction_doctypes = [
 # site (every CI run) gets URY's Custom Field fixtures but none of its
 # DocPerms. See ury.install.ensure_role_permissions for the full write-up.
 after_install = "ury.install.after_install"
+boot_session = "ury.ury.boot_insights.boot_session"
 
 # Uninstallation
 # ------------
@@ -208,7 +220,10 @@ permission_query_conditions = {
 # Override standard doctype classes
 
 override_doctype_class = {
-	"POS Invoice Merge Log": "ury.ury.class_overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog"
+	"POS Invoice Merge Log": "ury.ury.class_overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog",
+	"Network Printer Settings": "ury.ury.printing.custom_network_printer_settings.CustomNetworkPrinterSettings",
+	"POS Invoice": "ury.ury.class_overrides.pos_invoice.CustomPOSInvoice",
+	"Report": "ury.ury.class_overrides.report.CustomReport",
 }
 
 # HUF-optional: seeds/self-heals the "URY Dashboard Assistant" Agent record
@@ -217,6 +232,8 @@ override_doctype_class = {
 after_migrate = [
     "ury.ury.ai_tools.agent_seeding.after_migrate",
     "ury.setup_customizations.hide_setup_sidebar_options",
+    "ury.ury.desk_islands.after_migrate",
+    "ury.ury.brief_admin.ensure_default",
 ]
 
 # The "URY Sales Plan" Workflow fixture (ury/ury/workflow/ury_sales_plan/ury_sales_plan.json)
@@ -231,6 +248,17 @@ before_migrate = ["ury.ury.workflow.ury_sales_plan.install.before_migrate"]
 # Hook on document methods and events
 
 doc_events = {
+    "WhatsApp Message": {
+        "after_insert": "ury.ury.api.chairman_whatsapp.on_incoming",
+    },
+    "User": {
+        "validate": ["ury.ury.analytics_access.on_user_validate"],
+        "on_update": [
+            "ury.ury.api.chairman_wa_identity.on_user_update",
+            "ury.ury.analytics_access.on_user_update",
+        ],
+        "on_trash": "ury.ury.api.chairman_wa_identity.on_user_trash",
+    },
     "POS Invoice": {
         "before_insert": "ury.ury.hooks.ury_pos_invoice.before_insert",
         "validate": "ury.ury.hooks.ury_pos_invoice.validate",
@@ -295,6 +323,10 @@ doc_events = {
         ],
         "on_submit": [
             "ury.ury.hooks.ury_pos_closing_entry.submit_stock_correction",
+            "ury.ury.hooks.ury_pos_closing_entry.update_branch_avg_times",
+        ],
+        "on_cancel": [
+            "ury.ury.hooks.ury_pos_closing_entry.update_branch_avg_times",
         ],
         # Internal shift report snapshot. Runs after ERPNext's own on_submit
         # (invoice consolidation); a report failure is logged, never raised.
@@ -333,6 +365,9 @@ scheduler_events = {
 		"* * * * *":[
 			"ury.ury.api.ury_kot_validation.kotValidationThread",
 			"ury.ury.api.ury_fulfilment_posting_service.recover_pending_posting_intents",
+			"ury.ury.api.reservation_scheduler.process_reservation_no_shows",
+			"ury.ury.printing.print_job_poller.poll_active_print_jobs",
+			"ury.ury.printing.file_store.prune_expired_jobs",
 		],
 		"*/5 * * * *":[
 			"ury.ury.services.food_cost_alerts.notify_high_food_cost"
@@ -342,18 +377,20 @@ scheduler_events = {
 		# sweeps rows that reached neither, so capacity is not leaked
 		# forever. Hourly is ample for a job whose TTL is measured in a day.
 		"0 * * * *":[
-			"ury.ury.api.ury_reservation_service.expire_stale_reservations_scheduled"
+			"ury.ury.api.ury_reservation_service.expire_stale_reservations_scheduled",
+			"ury.chairman_jobs.purge_chairman_whatsapp",
 		]
 	},
 	"daily": [
-		"ury.ury.services.yield_check_reminders.notify_overdue_yield_checks"
-	]
+		"ury.ury.services.yield_check_reminders.notify_overdue_yield_checks",
+		"ury.chairman_jobs.purge_chairman_audio",
+	],
 # 	"all": [
 # 		"ury.tasks.all"
 # 	],
-# 	"hourly": [
-# 		"ury.tasks.hourly"
-# 	],
+	"hourly": [
+		"ury.ury.printing.recovery.reconcile_active_print_jobs",
+	],
 # 	"weekly": [
 # 		"ury.tasks.weekly"
 # 	],
@@ -408,6 +445,10 @@ website_path_resolver = [
     "ury.ury.controllers.setup_redirect.website_path_resolver"
 ]
 # Sets Service-Worker-Allowed + JS content-type for the Serve PWA worker.
+before_request = [
+    "ury.ury.api.wa_signature.guard_whatsapp_webhook",
+    "ury.ury.api.chairman_link.guard_brief_only_session",
+]
 after_request = ["ury.ury.controllers.serve_pwa.after_request"]
 
 website_redirects = [
@@ -415,7 +456,10 @@ website_redirects = [
         "source": "/setup-wizard",
         "target": "/ury/setup-wizard/0",
         "redirect_http_status": 302,
-    }
+    },
+    # /brief is the short link to URY Brief.
+    {"source": "/brief", "target": "/ury/brief/", "redirect_http_status": 302},
+    {"source": "/brief/", "target": "/ury/brief/", "redirect_http_status": 302},
 ]
 
 extend_bootinfo = [
@@ -466,6 +510,7 @@ extend_bootinfo = [
 # not installed — an unused hook value is simply never read.
 # See tracks/sa-ai-reports-dashboard/HUF_API_NOTES.md for how this was confirmed.
 huf_tools = "ury.ury.ai_tools.ury_tools_registry.ALL_URY_TOOLS"
+huf_brief_data_provider = "ury.ury.api.brief_provider.get_brief_data"
 
 fixtures = [
     {
@@ -585,6 +630,7 @@ fixtures = [
                     "POS Profile-role_allowed_for_billing",
                     "POS Profile-column_break_bvzw2",
                     "POS Profile-role_restricted_for_table_order",
+                    "POS Profile-role_masked_for_amounts",
                     "POS Profile-view_all_status",
                     "POS Profile-remove_items",
                     "POS Profile-custom_qty_reduction_allowed_order_types",
@@ -607,6 +653,12 @@ fixtures = [
                     "Branch-custom_aggregators",
                     "Branch-custom_make_unpaid",
                     "Branch-custom_no_taxes",
+                    "Branch-custom_reservation_settings_section",
+                    "Branch-custom_enable_reservation",
+                    "Branch-custom_buffer_time",
+                    "Branch-custom_grace_period",
+                    "Branch-custom_avg_table_time_last_day",
+                    "Branch-custom_avg_table_time_last_week",
                     "Price List-restaurant_menu",
                     "POS Profile-custom_enable_discount",
                     "POS Profile-custom_enable_service_charge",
@@ -624,6 +676,7 @@ fixtures = [
                     "POS Closing Entry Detail-custom_closing_amount",
                     "POS Closing Entry-branch",
                     "POS Profile-custom_edit_order_type",
+                    "POS Profile-custom_order_type_customers",
                     "Printer Settings-kot_print_format_",
                     "Printer Settings-kot",
                     "POS Profile-kot_naming_series",
@@ -652,6 +705,8 @@ fixtures = [
                     "POS Profile-custom_column_break_wwq3q",
                     "POS Profile-custom_table_order_printer",
                     "POS Profile-custom_reprint_kot_format",
+                    "POS Invoice-custom_printing_time",
+                    "POS Profile-custom_invoice_warning_time",
                     "POS Profile-buying_price_list",
                     "POS Profile-high_margin",
                     "POS Profile-low_margin",
@@ -694,7 +749,9 @@ fixtures = [
                     "POS Profile-custom_disposables",
                     "POS Profile-custom_column_break_bgzjv",
                     "POS Profile-custom_section_break_bmczy",
-                    "POS Profile-custom_ury_pos_configurations"
+                    "POS Profile-custom_ury_pos_configurations",
+                    "POS Profile-custom_disable_print_status_tracking",
+                    "Network Printer Settings-custom_printer_queue_name"
                 },
             ]
         ],
@@ -742,4 +799,9 @@ fixtures = [
     # row's `action` Link field fails validation with a LinkValidationError
     # on any later re-save/re-validate unless this row already exists.
     {"doctype": "Workflow Action Master", "filters": [["name", "in", ["Return to Draft"]]]},
+    # POS Operations: its own module (so the cashier Module Profile can block "URY"
+    # without hiding it) plus the Module Profile / Role Profile assigned to cashiers.
+    {"doctype": "Module Def", "filters": [["name", "in", ["URY POS"]]]},
+    {"doctype": "Role Profile", "filters": [["name", "in", ["URY Cashier"]]]},
+    {"doctype": "Module Profile", "filters": [["name", "in", ["URY Cashier"]]]},
 ]

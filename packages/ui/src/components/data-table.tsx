@@ -73,7 +73,7 @@ export function DataTable<T>({
                 key={column.key}
                 className={cn(
                   "px-[14px] py-[7px] align-middle text-[11px] font-medium text-muted-foreground",
-                  column.align === "right" ? "text-right" : "text-left"
+                  column.align === "right" ? "text-end" : "text-start"
                 )}
               >
                 {column.header}

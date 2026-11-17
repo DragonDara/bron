@@ -737,6 +737,7 @@ def searchPosInvoice(query,status):
             "net_total",
             "mobile_number",
             "invoice_printed",
+            "custom_printing_time",
             "cashier",
             "waiter",
             "custom_waiter_employee",
@@ -848,6 +849,9 @@ def getPosProfile():
         multiple_cashier = pos_profiles.custom_enable_multiple_cashier
         edit_order_type = pos_profiles.custom_edit_order_type
         enable_kot_reprint = pos_profiles.custom_enable_kot_reprint
+        invoice_warning_time = pos_profiles.custom_invoice_warning_time or 0
+        enable_payment_without_printing = pos_profiles.get("custom_enable_payment_without_printing") or 0
+        disable_print_status_tracking = getattr(pos_profiles, "custom_disable_print_status_tracking", 0)
         if multiple_cashier:
             details = getBranchRoom()
             room = details[0].get('name') 
@@ -910,6 +914,7 @@ def getPosProfile():
         "pos_profile": pos_profile_name,
         "branch": branch,
         "company": company,
+        "country": getattr(pos_profiles, "country", None) or frappe.db.get_value("Company", company, "country"),
         "waiter": waiter,
         "warehouse": warehouse,
         "cashier": cashier,
@@ -925,8 +930,11 @@ def getPosProfile():
         "multiple_cashier":multiple_cashier,
         "owner":owner,
         "edit_order_type":edit_order_type,
-        "enable_kot_reprint":enable_kot_reprint
-
+        "enable_kot_reprint":enable_kot_reprint,
+        "custom_invoice_warning_time":invoice_warning_time,
+        "enable_payment_without_printing":enable_payment_without_printing,
+        "custom_disable_print_status_tracking":disable_print_status_tracking,
+        **get_default_customer_config(pos_profiles),
     }
 
     return invoice_details
@@ -956,7 +964,7 @@ def getPosProfileFull(pos_profile):
         "idx": profile.idx,
         "company": profile.company,
         "customer": profile.customer,
-        "country": profile.country,
+        "country": profile.country or frappe.db.get_value("Company", profile.company, "country"),
         "disabled": profile.disabled,
         "warehouse": profile.warehouse,
         "campaign": profile.get("campaign"),
@@ -968,6 +976,7 @@ def getPosProfileFull(pos_profile):
         "role_allowed_for_billing": [row.as_dict() for row in profile.role_allowed_for_billing],
         "role_restricted_for_table_order": [row.as_dict() for row in profile.role_restricted_for_table_order],
         "transfer_role_permissions": [row.as_dict() for row in profile.transfer_role_permissions],
+        "role_masked_for_amounts": [row.as_dict() for row in (profile.get("role_masked_for_amounts") or [])],
         "view_all_status": profile.get("view_all_status"),
         "custom_daily_pos_close": profile.get("custom_daily_pos_close"),
         "custom_allow_order_without_customer": profile.get("custom_allow_order_without_customer"),
@@ -1094,8 +1103,46 @@ def getAggregatorMOP(aggregator):
             {"mode_of_payment": modeOfPayment, "opening_amount": float(0)}
     )
     return modeOfPaymentsList
+def validate_customer_mobile(mobile_number, country=None):
+    from frappe.geo.country_info import get_all
+    import phonenumbers
+
+    mobile_number = str(mobile_number or "").strip()
+    if not mobile_number:
+        frappe.throw(_("Mobile Number is required"))
+
+    # Also run standard validate_phone_number to preserve existing mock expectations
+    try:
+        validate_phone_number(mobile_number, throw=True)
+    except Exception:
+        frappe.throw(_("Invalid mobile number format"))
+
+    country_code = None
+    calling_code = None
+    if country:
+        all_info = get_all()
+        c_info = all_info.get(country) or {}
+        country_code = (c_info.get("code") or "").upper() or None
+        calling_code = c_info.get("isd")
+
+    clean_mobile = mobile_number.replace(" ", "")
+    if calling_code and clean_mobile in (calling_code, calling_code.lstrip("+")):
+        frappe.throw(_("Mobile Number is required"))
+
+    is_valid = False
+    try:
+        parsed = phonenumbers.parse(mobile_number, country_code)
+        is_valid = phonenumbers.is_valid_number(parsed)
+    except Exception:
+        is_valid = False
+
+    if not is_valid:
+        error_msg = _("Invalid mobile number {0} for {1}").format(mobile_number, country) if country else _("Invalid mobile number format")
+        frappe.throw(error_msg)
+
+
 @frappe.whitelist()
-def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory=None):
+def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory=None, pos_profile=None):
     if not frappe.has_permission("Customer", "create"):
         frappe.throw(_("Not permitted to create customers"), frappe.PermissionError)
 
@@ -1103,10 +1150,33 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
         frappe.throw(_("Customer name is required"))
     if not mobile_number:
         frappe.throw(_("Mobile Number is required"))
-    try:
-        validate_phone_number(mobile_number, throw=True)
-    except Exception:
-        frappe.throw(_("Invalid mobile number format"))
+
+    country = None
+    if pos_profile:
+        country = frappe.db.get_value("POS Profile", pos_profile, "country")
+        if not country:
+            company = frappe.db.get_value("POS Profile", pos_profile, "company")
+            if company:
+                country = frappe.db.get_value("Company", company, "country")
+
+    if not country:
+        try:
+            branch = getBranch()
+            if branch:
+                pos_profile_name = frappe.db.get_value("POS Profile", {"branch": branch}, "name")
+                if pos_profile_name:
+                    country = frappe.db.get_value("POS Profile", pos_profile_name, "country")
+                    if not country:
+                        company = frappe.db.get_value("POS Profile", pos_profile_name, "company")
+                        if company:
+                            country = frappe.db.get_value("Company", company, "country")
+        except Exception:
+            pass
+
+    if not country:
+        country = frappe.db.get_single_value("System Settings", "country")
+
+    validate_customer_mobile(mobile_number, country)
 
     """Create a new customer"""
     try:
@@ -2528,3 +2598,12 @@ def ensure_payment_mode_accounts(modes, company):
         _ensure_mode_of_payment(mode, company)
         ensured.append(mode)
     return ensured
+
+
+@frappe.whitelist(allow_guest=False)
+def is_printer_watch_installed() -> dict:
+    try:
+        installed = "ury_printer_watch" in frappe.get_installed_apps()
+    except Exception:
+        installed = False
+    return {"installed": bool(installed)}

@@ -1,5 +1,6 @@
 export { cn } from './lib/cn';
 export { sanitizeMessageHtml, messageToPlainText } from './lib/sanitize-message';
+export * from './lib/phone-validation';
 
 export * from './chart-colors';
 
@@ -47,3 +48,4 @@ export * from './components/confirm-dialog';
 export * from './components/customer-picker';
 export * from './components/segmented-control';
 export * from './components/chat-markdown';
+export * from './components/searchable-select';

@@ -27,6 +27,7 @@ vi.mock('./AggregatorSelect', () => ({
   AggregatorSelect: () => <div>Aggregator Select</div>,
 }));
 
+const pickerProps = vi.fn();
 vi.mock('./CustomerPicker', () => ({
   CustomerPicker: ({
     value,
@@ -50,7 +51,8 @@ vi.mock('./CustomerPicker', () => ({
         placeholder="Select customer"
       />
     </div>
-  ),
+    );
+  },
 }));
 
 describe('CustomerSelect', () => {
@@ -81,7 +83,14 @@ describe('CustomerSelect', () => {
 
     render(<CustomerSelect />);
     const input = screen.getByPlaceholderText('Select customer') as HTMLInputElement;
-    expect(input).toBeDisabled();
+    expect(input).not.toBeDisabled();
+  });
+
+  it('does not pass an orderType filter to the picker (picker always searches all customers)', () => {
+    pickerProps.mockClear();
+    render(<CustomerSelect />);
+    expect(pickerProps).toHaveBeenCalled();
+    expect(pickerProps.mock.calls[0][0]).not.toHaveProperty('orderType');
   });
 
   it('marks the picker optional when the POS Profile allows orders without a customer', () => {

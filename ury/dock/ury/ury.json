@@ -1,0 +1,29 @@
+{
+ "app": "ury",
+ "creation": "2026-10-22 00:00:00",
+ "docstatus": 0,
+ "doctype": "Dock",
+ "idx": 0,
+ "items": [
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "utensils",
+   "link_to": "URY",
+   "link_type": "Sidebar",
+   "title": "URY"
+  },
+  {
+   "icon": "chart-no-axes-combined",
+   "link_to": "URY Analytics Owner",
+   "link_type": "Workspace",
+   "title": "Analytics"
+  }
+ ],
+ "modified": "2026-11-03 07:11:13.858912",
+ "modified_by": "Administrator",
+ "name": "ury",
+ "owner": "Administrator",
+ "standard": 1,
+ "user": ""
+}

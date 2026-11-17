@@ -325,11 +325,21 @@ def calculate_and_set_times(doc, method=None):
 
 
 def validate_invoice_print(doc, method):
-    # Check if the invoice has been printed
-    invoice_printed = frappe.db.get_value("POS Invoice", doc.name, "invoice_printed")
+    if not doc.restaurant_table:
+        return
 
-    # If the invoice is associated with a restaurant table and hasn't been printed
-    if doc.restaurant_table and invoice_printed == 0:
+    pos_profile = getattr(doc, "pos_profile", None)
+    if pos_profile:
+        enable_pwp = frappe.db.get_value(
+            "POS Profile", pos_profile, "custom_enable_payment_without_printing"
+        )
+        if enable_pwp:
+            return
+
+    # Check if the invoice has been printed
+    invoice_printed = frappe.db.get_value("POS Invoice", doc.name, "invoice_printed") or 0
+
+    if invoice_printed == 0:
         frappe.throw(
             "Printing the invoice is mandatory before submitting. Please print the invoice."
         )
@@ -337,7 +347,7 @@ def validate_invoice_print(doc, method):
 
 def table_status_delete(doc, method):
     if doc.restaurant_table:
-        release_merge_cluster_tables(doc.restaurant_table)
+        release_merge_cluster_tables(doc.restaurant_table, commit=False)
 
 
 def pos_invoice_naming(doc, method):
@@ -452,6 +462,25 @@ def restrict_existing_order(doc, event):
         ):
             return
 
+    # Enforce table reservation buffer lock check for Dine In orders
+    if (doc.order_type or "Dine In") == "Dine In" and doc.restaurant_table:
+        from ury.ury.api.table_reservation import check_table_reservation, parse_to_datetime
+        active_res = check_table_reservation(doc.restaurant_table)
+        if active_res and active_res.get("is_lock_window_active") and active_res.get("status") == "Confirmed":
+            res_time_raw = active_res.get("reserved_at")
+            formatted_res_time = ""
+            if res_time_raw:
+                try:
+                    res_dt = parse_to_datetime(res_time_raw)
+                    formatted_res_time = res_dt.strftime("%I:%M %p").lstrip("0")
+                except Exception:
+                    formatted_res_time = str(res_time_raw)
+            frappe.throw(
+                frappe._("Table {0} is reserved for {1}. Please choose another table.").format(
+                    doc.restaurant_table, formatted_res_time
+                )
+            )
+
     invoice_exist = frappe.db.exists(
         "POS Invoice",
         {
@@ -464,6 +493,29 @@ def restrict_existing_order(doc, event):
         frappe.throw(
             ("Table {0} has an existing invoice").format(doc.restaurant_table)
         )
+
+def validate_table_reservation_lock(doc, method):
+    if not doc.restaurant_table or (doc.order_type or "Dine In") != "Dine In":
+        return
+
+    # Check on new document or if table was changed
+    if doc.is_new() or doc.has_value_changed("restaurant_table"):
+        from ury.ury.api.table_reservation import check_table_reservation, parse_to_datetime
+        active_res = check_table_reservation(doc.restaurant_table)
+        if active_res and active_res.get("is_lock_window_active") and active_res.get("status") == "Confirmed":
+            res_time_raw = active_res.get("reserved_at")
+            formatted_res_time = ""
+            if res_time_raw:
+                try:
+                    res_dt = parse_to_datetime(res_time_raw)
+                    formatted_res_time = res_dt.strftime("%I:%M %p").lstrip("0")
+                except Exception:
+                    formatted_res_time = str(res_time_raw)
+            frappe.throw(
+                frappe._("Table {0} is reserved for {1}. Please choose another table.").format(
+                    doc.restaurant_table, formatted_res_time
+                )
+            )
 
 def sync_merged_invoice(doc):
     if getattr(frappe.flags, "in_bill_merge_sync", False):

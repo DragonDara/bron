@@ -12,6 +12,13 @@ vi.mock("./AggregatorSelect", () => ({
   AggregatorSelect: () => <div data-testid="aggregator">Aggregator</div>,
 }));
 
+const pickerProps = vi.fn();
+const storeState = {
+  selectedCustomer: null,
+  setSelectedCustomer: vi.fn(),
+  selectedOrderType: "Regular",
+  isUpdatingOrder: false,
+};
 vi.mock("./CustomerPicker", () => ({
   CustomerPicker: ({ optional, orderType }: { optional?: boolean; orderType?: string }) => (
     <div data-testid="picker" data-optional={String(Boolean(optional))} data-order-type={orderType}>
@@ -38,6 +45,27 @@ describe("CustomerSelect", () => {
   it("renders picker component by default", () => {
     const { getByTestId } = render(<CustomerSelect />);
     expect(getByTestId("picker")).toBeInTheDocument();
+  });
+
+  it("does not pass an orderType filter to the picker (picker always searches all customers)", () => {
+    pickerProps.mockClear();
+    render(<CustomerSelect />);
+    expect(pickerProps).toHaveBeenCalled();
+    expect(pickerProps.mock.calls[0][0]).not.toHaveProperty("orderType");
+  });
+
+  it("keeps the picker enabled while an order is being updated (customer can change on an open order)", () => {
+    storeState.isUpdatingOrder = true;
+    pickerProps.mockClear();
+    render(<CustomerSelect />);
+    expect(pickerProps.mock.calls[0][0].disabled).toBeFalsy();
+    storeState.isUpdatingOrder = false;
+  });
+
+  it("still disables the picker when the parent disables it", () => {
+    pickerProps.mockClear();
+    render(<CustomerSelect disabled />);
+    expect(pickerProps.mock.calls[0][0].disabled).toBe(true);
   });
 
   it("accepts disabled prop", () => {

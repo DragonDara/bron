@@ -9,6 +9,7 @@
  "field_order": [
   "posting_date",
   "posting_time",
+  "datetime",
   "edit_posting_date",
   "branch",
   "company",
@@ -19,10 +20,14 @@
   "issue_authorization",
   "plan",
   "status",
+  "wastage_source",
   "reason_category",
   "reason_notes",
   "section_break_approval",
+  "section_break_items",
   "items",
+  "section_break_totals",
+  "total_cost",
   "section_break_mgsh",
   "captured_by",
   "captured_on",
@@ -92,17 +97,30 @@
    "read_only": 1
   },
   {
+   "default": "Physical Audit",
+   "fieldname": "wastage_source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Wastage Source",
+   "options": "Physical Audit\nKOT Cancellation"
+  },
+  {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
    "fieldname": "reason_category",
    "fieldtype": "Select",
    "label": "Reason Category",
-   "options": "Spoilage\nPreparation Error\nDropped/Damaged\nExpired\nOther"
+   "options": "Spoilage\nPreparation Error\nDropped/Damaged\nExpired\nOther",
+   "read_only": 1
   },
   {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
    "fieldname": "reason_notes",
    "fieldtype": "Small Text",
-   "label": "Reason Notes"
+   "label": "Reason Notes",
+   "read_only": 1
   },
   {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
    "fieldname": "section_break_approval",
    "fieldtype": "Section Break"
   },
@@ -141,6 +159,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
    "fieldname": "section_break_audit",
    "fieldtype": "Section Break"
   },
@@ -157,11 +176,27 @@
    "options": "Warehouse"
   },
   {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
    "options": "Wastage Item",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_break_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "label": "Total Cost",
+   "read_only": 1
   },
   {
    "fieldname": "amended_from",
@@ -185,7 +220,16 @@
    "fieldtype": "Section Break"
   },
   {
+   "fieldname": "datetime",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Datetime",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "default": "0",
+   "depends_on": "eval:doc.wastage_source !== 'KOT Cancellation'",
    "fieldname": "edit_posting_date",
    "fieldtype": "Check",
    "label": "Edit Posting Date and Time"
@@ -194,19 +238,21 @@
    "default": "Today",
    "fieldname": "posting_date",
    "fieldtype": "Date",
-   "label": "Date"
+   "label": "Date",
+   "read_only_depends_on": "eval:doc.edit_posting_date == 0"
   },
   {
    "default": "Now",
    "fieldname": "posting_time",
    "fieldtype": "Time",
-   "label": "Time"
+   "label": "Time",
+   "read_only_depends_on": "eval:doc.edit_posting_date == 0"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-05 18:44:15.308146",
+ "modified": "2026-11-10 10:27:30.680818",
  "modified_by": "Administrator",
  "module": "URY",
  "name": "URY Wastage",
@@ -214,6 +260,7 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -222,20 +269,26 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Production Manager"
+   "role": "Production Manager",
+   "submit": 1,
+   "write": 1
   },
   {
+   "cancel": 1,
    "read": 1,
    "report": 1,
    "role": "Stock Manager",
+   "submit": 1,
    "write": 1
   },
   {
@@ -249,6 +302,7 @@
    "role": "URY Manager"
   },
   {
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -258,6 +312,7 @@
    "report": 1,
    "role": "URY Admin",
    "share": 1,
+   "submit": 1,
    "write": 1
   }
  ],
