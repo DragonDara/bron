@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CustomerPicker as CustomerPickerView, type CustomerOption } from '@ury/ui';
-import { addCustomer, searchCustomers } from '../lib/customer-api';
+import { addCustomer, searchCustomers, getCustomersByOrderType } from '../lib/customer-api';
 import { type Customer, usePOSStore } from '../store/pos-store';
 import { useRootStore } from '../store/root-store';
 import { t } from '../i18n';
@@ -22,6 +22,22 @@ function parseCustomer(row: { name: string; content?: string }): CustomerOption 
 }
 
 export function CustomerPicker({ value, onChange, disabled, optional, orderType }: CustomerPickerProps) {
+  const posStoreProfile = usePOSStore((state) => state.posProfile);
+  const rootStoreProfile = useRootStore((state) => state.posProfile);
+  const posProfile = posStoreProfile || rootStoreProfile;
+
+  const country =
+    posProfile?.country ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem('posProfile');
+        return raw ? JSON.parse(raw)?.country : undefined;
+      } catch {
+        return undefined;
+      }
+    })() ||
+    (typeof window !== 'undefined' && ((window as any)?.frappe?.boot?.sysdefaults?.country || (window as any)?.frappe?.boot?.country)) ||
+    undefined;
   const [results, setResults] = useState<CustomerOption[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -58,6 +74,19 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
       .finally(() => setSearching(false));
   }, []);
 
+  const handleSearch = useCallback(
+    (query: string) => {
+      fetchCustomers(query, orderType);
+    },
+    [fetchCustomers, orderType]
+  );
+
+  useEffect(() => {
+    if (orderType && typeof getCustomersByOrderType === 'function') {
+      fetchCustomers('', orderType);
+    }
+  }, [orderType, fetchCustomers]);
+
   return (
     <CustomerPickerView
       value={value}
@@ -67,6 +96,7 @@ export function CustomerPicker({ value, onChange, disabled, optional, orderType 
       searchError={searchError}
       onSearch={handleSearch}
       disabled={disabled}
+      resultsHeader={orderType ? `${orderType} Customers` : undefined}
       country={country}
       onCreate={async ({ name, phone }) => {
         const response = await addCustomer({

@@ -105,6 +105,13 @@ export const AVAILABILITY_REASON_TRANSLATION_KEYS: Record<string, string> = {
 
 const DEFAULT_UNAVAILABLE_MESSAGE = 'Currently unavailable';
 
+const AVAILABILITY_MESSAGE_KEYS: Record<string, string> = {
+  'Available': 'menu.available_chip',
+  'Not available today': 'menu.availability.not_today',
+  'Sold out': 'menu.availability.sold_out',
+  'Temporarily unavailable': 'menu.availability.temporarily',
+};
+
 export const getAvailabilityMessage = (reasonCode: string | null | undefined): string => {
   if (!reasonCode) return t('menu.availability.default');
   const en = AVAILABILITY_REASON_MESSAGES[reasonCode];
