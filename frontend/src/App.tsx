@@ -1,3 +1,4 @@
+import { __ } from './i18n';
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { call } from '@ury/core';

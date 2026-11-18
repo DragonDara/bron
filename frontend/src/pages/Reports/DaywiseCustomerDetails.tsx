@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { call } from '@ury/core';
 import { KpiStrip, DataTable, type DataTableColumn, type KpiItemProps, PageHeader } from '@ury/ui';

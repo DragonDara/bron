@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@ury/ui';

@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Page, Section, Panel, AttentionFeed, AttentionItemProps, KpiStrip, Spinner } from '@ury/ui';
 import { useBranchContext } from '../../context/BranchContext';

@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import React, { useState, useEffect } from 'react';
 import { useBranchContext } from '../../context/BranchContext';
 import { Plus } from 'lucide-react';
