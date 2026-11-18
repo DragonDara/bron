@@ -135,7 +135,7 @@ describe("ClosingPaymentTable", () => {
       />
     );
     
-    expect(screen.getByText("Payment Mode")).toBeInTheDocument();
+    expect(screen.getByText("pos_closing.payment_mode")).toBeInTheDocument();
   });
 
   it("masks the expected amount when hideExpected is set", () => {

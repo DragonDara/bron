@@ -13,18 +13,15 @@ vi.mock("./AggregatorSelect", () => ({
 }));
 
 const pickerProps = vi.fn();
-const storeState = {
-  selectedCustomer: null,
-  setSelectedCustomer: vi.fn(),
-  selectedOrderType: "Regular",
-  isUpdatingOrder: false,
-};
 vi.mock("./CustomerPicker", () => ({
-  CustomerPicker: ({ optional, orderType }: { optional?: boolean; orderType?: string }) => (
-    <div data-testid="picker" data-optional={String(Boolean(optional))} data-order-type={orderType}>
-      Picker
-    </div>
-  ),
+  CustomerPicker: (props: { optional?: boolean; orderType?: string }) => {
+    pickerProps(props);
+    return (
+      <div data-testid="picker" data-optional={String(Boolean(props.optional))} data-order-type={props.orderType}>
+        Picker
+      </div>
+    );
+  },
 }));
 
 describe("CustomerSelect", () => {
