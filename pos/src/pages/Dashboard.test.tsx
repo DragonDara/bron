@@ -3,6 +3,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("../i18n", () => ({
   t: (key) => key === "dashboard.title" ? "Shift Overview" : key,
+  tData: (name: string) => name,
+  tUser: (name: string | null | undefined) => name ?? "",
+  tNotification: (subject: string) => subject,
+  ltrFraction: (a: string | number, b: string | number) => `${a} / ${b}`,
   getActiveLanguage: () => "en",
 }));
 

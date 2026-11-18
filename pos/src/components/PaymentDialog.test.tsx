@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import PaymentDialog from "./PaymentDialog";
 import { call } from "@ury/core";
 import type { ComponentProps, ReactNode } from "react";
+import { printOrder } from "../lib/print";
 
 const mockUsePOSStore = vi.fn();
 

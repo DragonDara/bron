@@ -16,7 +16,7 @@ import { formatCurrency } from '@ury/core';
 import { getOpenPosOpeningEntries, type OpenPosOpeningEntry } from '../lib/pos-closing-api';
 import InsightFeed from '../components/dashboard/InsightFeed';
 import AskBar from '../components/chat/AskBar';
-import { getActiveLanguage, t } from '../i18n';
+import { getActiveLanguage, t, tData, tUser, tNotification, ltrFraction } from '../i18n';
 
 // Helper function to format relative time
 function getRelativeTime(creationDate: string): string {
