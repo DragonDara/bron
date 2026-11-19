@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from frappe.utils import validate_phone_number
 
 from ury.ury.api.ury_customer_pricing import get_customer_price_menu
+from ury.ury_pos.default_customer import get_default_customer_config
 
 
 #GetTable  decripted temporarily
