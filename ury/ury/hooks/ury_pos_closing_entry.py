@@ -8,6 +8,7 @@ from ury.ury_pos.api import (
 	_phase_dependent_rows,
 	_role_rank,
 )
+from ury.ury.doctype.sub_pos_closing.sub_pos_closing import assert_no_open_invoices
 
 def before_save(doc, method):
     sub_pos_close_check(doc, method)
@@ -17,6 +18,7 @@ def validate(doc, method):
     populate_draft_stock_correction(doc)
     calculate_closing_amount(doc, method)
     validate_cashier(doc, method)
+    assert_no_open_invoices(doc.pos_profile)
     validate_ported_checks(doc, method)
 
 def update_branch_avg_times(doc, method=None):
@@ -101,7 +103,6 @@ def validate_ported_checks(doc, method):
 
     if errors:
         frappe.throw(errors, title="Validation Error", as_list=True)
-
 
 
 def populate_pos_transactions(doc, method):
