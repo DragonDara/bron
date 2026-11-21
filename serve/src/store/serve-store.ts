@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getCurrencyCode, setCurrency } from '@ury/core'
+import { getCurrencyCode, setCurrency, resolveDefaultCustomer } from '@ury/core'
 import { getRestaurantMenu, type MenuItem as APIMenuItem } from '../lib/menu-api'
 import { getCurrencyInfo, getCombinedPosProfile, type PosProfileCombined } from '../lib/pos-profile-api'
 import { getTableOrder, type TableOrder } from '../lib/order-api'
