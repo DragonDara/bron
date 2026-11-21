@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ury/core', () => ({
+vi.mock('@ury/core', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@ury/core')>()),
   call: { get: vi.fn(), post: vi.fn() },
   storage: { setItem: vi.fn(), getItem: vi.fn() },
+  siteCurrencyCode: () => null,
 }))
 
 vi.mock('../lib/menu-api', () => ({

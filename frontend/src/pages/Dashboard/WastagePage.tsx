@@ -18,7 +18,7 @@ import {
   Spinner,
   numericCellClass,
 } from '@ury/ui';
-import { getCurrencySymbol, getLoggedUser, getUserRoles } from '@ury/core';
+import { formatCurrency, getLoggedUser, getUserRoles } from '@ury/core';
 
 // Mirrors the identical helper in StockReservationPage.tsx / PaymentTerminalPage.tsx.
 const formatDateTime = (value?: string) => {
@@ -28,10 +28,11 @@ const formatDateTime = (value?: string) => {
 import { useBranchContext } from '../../context/BranchContext';
 import { DeskLink } from '../../components/DeskLink';
 import { departmentStockService, DepartmentOption, WastageRow } from '../../services/departmentStock';
+import { __ } from '../../i18n';
 
 /** Roles permitted to view wastage records. Mirrors
  * `DEPARTMENT_STOCK_ALLOWED_ROLES` in `DepartmentStockPage.tsx`, since
- * `URY Issue Wastage` shares its permission model with the department
+ * `URY Wastage` shares its permission model with the department
  * stock/issue authorization screens. */
 export const WASTAGE_ALLOWED_ROLES = ['Production Manager', 'Stock Manager', 'System Manager'];
 
@@ -48,9 +49,6 @@ const getDefaultFromDate = () => {
 const getToday = () => new Date().toISOString().slice(0, 10);
 
 const formatQty = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(2));
-
-const formatCurrency = (value: number) =>
-  value.toLocaleString(getManagementLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface WastageRoleGateProps {
   children: React.ReactNode;
@@ -95,9 +93,9 @@ export const WastageRoleGate: React.FC<WastageRoleGateProps> = ({ children }) =>
   if (status === 'denied') {
     return (
       <Card className="w-full max-w-md p-6 text-center" data-testid="wastage-access-denied">
-        <h2 className="mb-2 text-lg font-semibold text-foreground">Access Denied</h2>
+        <h2 className="mb-2 text-lg font-semibold text-foreground">{__('Access Denied')}</h2>
         <p className="text-muted-foreground">
-          You need the Production Manager, Stock Manager, or System Manager role to view this section.
+          {__('You need the Production Manager, Stock Manager, or System Manager role to view this section.')}
         </p>
       </Card>
     );
@@ -189,7 +187,7 @@ const WastageContent: React.FC = () => {
       } catch {
         if (!cancelled) {
           setWastageRows([]);
-          setError('Unable to load wastage data.');
+          setError(__('Unable to load wastage data.'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -230,7 +228,7 @@ const WastageContent: React.FC = () => {
       refresh();
     } catch {
       setActionError(
-        drawerAction === 'approve' ? 'Unable to approve this wastage record.' : 'Unable to reject this wastage record.'
+        drawerAction === 'approve' ? __('Unable to approve this wastage record.') : __('Unable to reject this wastage record.')
       );
       setDrawerActionBusy(false);
     }
@@ -241,7 +239,7 @@ const WastageContent: React.FC = () => {
 
   /**
    * KPI figures computed strictly from `listWastage()`'s real rows. The
-   * `URY Issue Wastage` backend list endpoint
+   * `URY Wastage` backend list endpoint
    * (`ury.ury.api.ury_wastage.list_wastage`) does not return `stock_uom` or
    * `issue_authorization`, so those can't drive a KPI. It does now return
    * `reason_category`, `captured_on`/`approved_on` (timestamps), and
@@ -259,7 +257,7 @@ const WastageContent: React.FC = () => {
 
     const byDepartment = new Map<string, number>();
     for (const row of wastageRows) {
-      const key = row.department || 'Unknown';
+      const key = row.department || __('Unknown');
       byDepartment.set(key, (byDepartment.get(key) ?? 0) + (row.valuation_amount ?? 0));
     }
     let highestDepartment: { name: string; value: number } | null = null;
@@ -271,19 +269,19 @@ const WastageContent: React.FC = () => {
 
     const items: KpiItemProps[] = [
       {
-        label: "Total Wastage Value",
-        value: `${getCurrencySymbol()} ${formatCurrency(totalValue)}`,
+        label: __('Total Wastage Value'),
+        value: formatCurrency(totalValue),
         tone: 'danger',
       },
       {
-        label: 'Entries',
+        label: __('Entries'),
         value: entryCount,
         tone: 'default',
       },
       {
-        label: 'Highest Department',
-        value: highestDepartment ? highestDepartment.name : 'N/A',
-        hint: highestDepartment ? `${getCurrencySymbol()} ${formatCurrency(highestDepartment.value)}` : undefined,
+        label: __('Highest Department'),
+        value: highestDepartment ? highestDepartment.name : __('N/A'),
+        hint: highestDepartment ? formatCurrency(highestDepartment.value) : undefined,
         tone: 'warning',
       },
     ];
@@ -293,32 +291,32 @@ const WastageContent: React.FC = () => {
   const columns: DataTableColumn<WastageRow>[] = [
     {
       key: 'component_item',
-      header: 'Item',
+      header: __('Item'),
       render: (row) => <span className="font-medium text-foreground">{row.component_item}</span>,
     },
     {
       key: 'department',
-      header: 'Department',
+      header: __('Department'),
       render: (row) => departmentName(row.department),
     },
     {
       key: 'wasted_qty',
-      header: 'Qty',
+      header: __('Qty'),
       align: 'right',
       render: (row) => <span className={numericCellClass}>{formatQty(row.wasted_qty)}</span>,
     },
     {
       key: 'status',
-      header: 'Status',
+      header: __('Status'),
       render: (row) => <Badge variant={statusBadgeVariant(row.status)}>{row.status}</Badge>,
     },
     {
       key: 'valuation_amount',
-      header: 'Value',
+      header: __('Value'),
       align: 'right',
       render: (row) => (
         <span className={numericCellClass}>
-          {row.valuation_amount !== undefined ? `${getCurrencySymbol()} ${formatCurrency(row.valuation_amount)}` : '-'}
+          {row.valuation_amount !== undefined ? formatCurrency(row.valuation_amount) : '-'}
         </span>
       ),
     },
@@ -327,21 +325,21 @@ const WastageContent: React.FC = () => {
   return (
     <Page>
       <div className="-mx-page-x -mt-page-top border-b border-border px-page-x pb-4 pt-page-top">
-        <h1 className="text-xl font-semibold text-foreground">Wastage</h1>
+        <h1 className="text-xl font-semibold text-foreground">{__('Wastage')}</h1>
         <p className="mt-1 text-sm text-text-tertiary">
-          Read-only view of captured wastage entries and their approval status for a branch and date range.
+          {__('Read-only view of captured wastage entries and their approval status for a branch and date range.')}
         </p>
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
           <label className="flex flex-col text-xs font-medium text-muted-foreground">
-            Department
+            {__('Department')}
             <Select
-              aria-label="Department"
+              aria-label={__('Department')}
               value={department}
               onChange={(event) => setDepartment(event.target.value)}
               className="mt-1"
             >
-              <option value="">All departments</option>
+              <option value="">{__('All departments')}</option>
               {departmentOptions.map((dept) => (
                 <option key={dept.name} value={dept.name}>
                   {dept.department_name}
@@ -350,20 +348,20 @@ const WastageContent: React.FC = () => {
             </Select>
           </label>
           <label className="flex flex-col text-xs font-medium text-muted-foreground">
-            From
+            {__('From')}
             <DatePicker
               id="from-date"
-              aria-label="From date"
+              aria-label={__('From date')}
               value={fromDate}
               onChange={(_id, next) => setFromDate(next)}
               className="mt-1 w-[150px]"
             />
           </label>
           <label className="flex flex-col text-xs font-medium text-muted-foreground">
-            To
+            {__('To')}
             <DatePicker
               id="to-date"
-              aria-label="To date"
+              aria-label={__('To date')}
               value={toDate}
               onChange={(_id, next) => setToDate(next)}
               className="mt-1 w-[150px]"
@@ -374,7 +372,7 @@ const WastageContent: React.FC = () => {
 
       {!activeBranchId || activeBranchId === 'all' ? (
         <Section>
-          <Card className="p-10 text-center text-sm text-text-tertiary">Select a branch to view wastage data.</Card>
+          <Card className="p-10 text-center text-sm text-text-tertiary">{__('Select a branch to view wastage data.')}</Card>
         </Section>
       ) : (
         <Section>
@@ -389,7 +387,7 @@ const WastageContent: React.FC = () => {
               columns={columns}
               rows={wastageRows}
               isLoading={loading}
-              emptyMessage="No wastage records found for this branch, department, and date range."
+              emptyMessage={__('No wastage records found for this branch, department, and date range.')}
               onRowClick={openDrawer}
             />
           )}
@@ -399,28 +397,28 @@ const WastageContent: React.FC = () => {
       <Drawer
         open={selectedRow !== null}
         onClose={closeDrawer}
-        title={selectedRow ? selectedRow.component_item : 'Wastage entry'}
+        title={selectedRow ? selectedRow.component_item : __('Wastage entry')}
         footer={
           selectedRow && canApprove && selectedRow.status === 'Draft' ? (
             drawerAction ? (
               <>
-                <span className="mr-auto self-center text-xs text-muted-foreground">
-                  {drawerAction === 'approve' ? 'Approve this entry?' : 'Reject this entry?'}
+                <span className="me-auto self-center text-xs text-muted-foreground">
+                  {drawerAction === 'approve' ? __('Approve this entry?') : __('Reject this entry?')}
                 </span>
                 <Button type="button" variant="outline" onClick={() => setDrawerAction(null)} disabled={drawerActionBusy}>
-                  Cancel
+                  {__('Cancel')}
                 </Button>
                 <Button type="button" onClick={handleDrawerConfirm} disabled={drawerActionBusy}>
-                  Confirm
+                  {__('Confirm')}
                 </Button>
               </>
             ) : (
               <>
                 <Button type="button" variant="outline" onClick={() => setDrawerAction('reject')}>
-                  Reject
+                  {__('Reject')}
                 </Button>
                 <Button type="button" onClick={() => setDrawerAction('approve')}>
-                  Approve
+                  {__('Approve')}
                 </Button>
               </>
             )
@@ -429,47 +427,47 @@ const WastageContent: React.FC = () => {
       >
         {selectedRow && (
           <>
-            <DrawerSectionLabel>Details</DrawerSectionLabel>
-            <KeyValueRow label="Item" value={selectedRow.component_item} />
-            <KeyValueRow label="Department" value={departmentName(selectedRow.department)} />
-            <KeyValueRow label="Wasted qty" value={formatQty(selectedRow.wasted_qty)} />
+            <DrawerSectionLabel>{__('Details')}</DrawerSectionLabel>
+            <KeyValueRow label={__('Item')} value={selectedRow.component_item} />
+            <KeyValueRow label={__('Department')} value={departmentName(selectedRow.department)} />
+            <KeyValueRow label={__('Wasted qty')} value={formatQty(selectedRow.wasted_qty)} />
             <KeyValueRow
-              label="Status"
+              label={__('Status')}
               value={<Badge variant={statusBadgeVariant(selectedRow.status)}>{selectedRow.status}</Badge>}
             />
-            {selectedRow.branch !== undefined && <KeyValueRow label="Branch" value={selectedRow.branch} />}
-            {selectedRow.company !== undefined && <KeyValueRow label="Company" value={selectedRow.company} />}
+            {selectedRow.branch !== undefined && <KeyValueRow label={__('Branch')} value={selectedRow.branch} />}
+            {selectedRow.company !== undefined && <KeyValueRow label={__('Company')} value={selectedRow.company} />}
             {selectedRow.valuation_rate !== undefined && (
-              <KeyValueRow label="Valuation rate" value={`${getCurrencySymbol()} ${formatCurrency(selectedRow.valuation_rate)}`} />
+              <KeyValueRow label={__('Valuation rate')} value={formatCurrency(selectedRow.valuation_rate)} />
             )}
             {selectedRow.valuation_amount !== undefined && (
-              <KeyValueRow label="Valuation amount" value={`${getCurrencySymbol()} ${formatCurrency(selectedRow.valuation_amount)}`} />
+              <KeyValueRow label={__('Valuation amount')} value={formatCurrency(selectedRow.valuation_amount)} />
             )}
             {(selectedRow.reason_category || selectedRow.reason_notes) && (
               <>
-                <DrawerSectionLabel>Reason</DrawerSectionLabel>
+                <DrawerSectionLabel>{__('Reason')}</DrawerSectionLabel>
                 {selectedRow.reason_category !== undefined && (
-                  <KeyValueRow label="Reason category" value={selectedRow.reason_category} />
+                  <KeyValueRow label={__('Reason category')} value={selectedRow.reason_category} />
                 )}
                 {selectedRow.reason_notes !== undefined && (
-                  <KeyValueRow label="Reason notes" value={selectedRow.reason_notes} />
+                  <KeyValueRow label={__('Reason notes')} value={selectedRow.reason_notes} />
                 )}
               </>
             )}
             {(selectedRow.captured_by || selectedRow.approved_by) && (
               <>
-                <DrawerSectionLabel>Audit</DrawerSectionLabel>
+                <DrawerSectionLabel>{__('Audit')}</DrawerSectionLabel>
                 {selectedRow.captured_by !== undefined && (
-                  <KeyValueRow label="Captured by" value={selectedRow.captured_by} />
+                  <KeyValueRow label={__('Captured by')} value={selectedRow.captured_by} />
                 )}
                 {selectedRow.captured_on !== undefined && (
-                  <KeyValueRow label="Captured on" value={formatDateTime(selectedRow.captured_on)} />
+                  <KeyValueRow label={__('Captured on')} value={formatDateTime(selectedRow.captured_on)} />
                 )}
                 {selectedRow.approved_by !== undefined && (
-                  <KeyValueRow label="Approved by" value={selectedRow.approved_by} />
+                  <KeyValueRow label={__('Approved by')} value={selectedRow.approved_by} />
                 )}
                 {selectedRow.approved_on !== undefined && (
-                  <KeyValueRow label="Approved on" value={formatDateTime(selectedRow.approved_on)} />
+                  <KeyValueRow label={__('Approved on')} value={formatDateTime(selectedRow.approved_on)} />
                 )}
               </>
             )}
@@ -477,7 +475,7 @@ const WastageContent: React.FC = () => {
                 record's fields still happens in the desk. Rendered only for
                 users whose desk permissions actually allow opening it. */}
             <div className="pt-3">
-              <DeskLink doctype="URY Issue Wastage" name={selectedRow.name} label="Open in Desk" />
+              <DeskLink doctype="URY Wastage" name={selectedRow.name} label={__('Open in Desk')} />
             </div>
           </>
         )}

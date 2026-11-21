@@ -7,7 +7,7 @@ import { showToast } from '@ury/ui';
 import { cn } from '@ury/ui';
 import OrderStatusSidebar from '../components/OrderStatusSidebar';
 import { useRootStore } from '../store/root-store';
-import { formatCurrency } from '@ury/core';
+import { formatCurrency, normalizeFrappeTime } from '@ury/core';
 import { Spinner } from '@ury/ui';
 import { Textarea } from '@ury/ui';
 import { usePOSStore } from '../store/pos-store';
@@ -19,7 +19,6 @@ import OrderActionsMenu from '../components/OrderActionsMenu';
 import SplitGroupPanel from '../components/SplitGroupPanel';
 import MergedBillPanel from '../components/MergedBillPanel';
 import { printOrder } from '../lib/print';
-import { call } from '@ury/core';
 import { splitBill, cancelOrder } from '../lib/order-api';
 import {
   getOrdersTabForInvoice,
@@ -33,6 +32,11 @@ import {
 } from '../lib/invoice-api';
 import { formatMergedTableLabel } from '../lib/table-utils';
 import { t } from '../i18n';
+import {
+  getPrintWarningState,
+  formatFrappeDatetime,
+  type PrintWarningInput,
+} from '../lib/invoice-print-warning';
 
 function getOrderTableLabel(order: Pick<POSInvoice, 'restaurant_table' | 'custom_merged_tables'>) {
   if (!order.restaurant_table) return null;
@@ -114,6 +118,23 @@ export default function Orders() {
   } = useRootStore();
 
   const posStore = usePOSStore();
+  const printWarningMinutes = posStore.posProfile?.custom_invoice_warning_time ?? 0;
+  const [clockNow, setClockNow] = React.useState(() => Date.now());
+  useEffect(() => {
+    if (!printWarningMinutes) return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [printWarningMinutes]);
+
+  const renderPrintWarning = (order: PrintWarningInput) => {
+    const warning = getPrintWarningState(order, printWarningMinutes, clockNow);
+    if (!warning.exceeded) return null;
+    return (
+      <Badge variant="outline" className="border-red-500 text-red-600 bg-red-50">
+        {warning.elapsedLabel}
+      </Badge>
+    );
+  };
   const navigate = useNavigate();
   const mounted = useRef(false);
   const [cancelDialogOpen, setCancelDialogOpen] = React.useState(false);
@@ -180,7 +201,7 @@ export default function Orders() {
 
   // Function to format the date and time
   const formatDateTime = (date: string, time: string) => {
-    const formattedDate = new Date(date + ' ' + time).toLocaleString(getManagementLocale(), {
+    const formattedDate = new Date(date + ' ' + normalizeFrappeTime(time)).toLocaleString(getManagementLocale(), {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -289,7 +310,14 @@ export default function Orders() {
       showToast.success(t('success.printed'));
       // Locally update selectedOrder.invoice_printed to 1
       if (selectedOrder && typeof selectedOrder === 'object') {
-        selectOrder({ ...selectedOrder, invoice_printed: 1 });
+        const wasPrinted = Number(selectedOrder.invoice_printed) === 1;
+        selectOrder({
+          ...selectedOrder,
+          invoice_printed: 1,
+          custom_printing_time: wasPrinted
+            ? selectedOrder.custom_printing_time ?? null
+            : formatFrappeDatetime(new Date()),
+        });
       }
       // If order was Unbilled, set to Draft and reload draft orders
       if (selectedStatus === 'Unbilled') {
@@ -484,10 +512,13 @@ export default function Orders() {
       key: 'status',
       header: 'Status',
       render: (order) => (
-        <StatusTag
-          status={order.status}
-          label={t(`order_status_types.${order.status.toLowerCase().replace(/ /g, '_')}`)}
-        />
+        <div className="flex flex-wrap items-center gap-1">
+          <StatusTag
+            status={order.status}
+            label={t(`order_status_types.${order.status.toLowerCase().replace(/ /g, '_')}`)}
+          />
+          {renderPrintWarning(order)}
+        </div>
       ),
     },
   ];
@@ -810,7 +841,11 @@ export default function Orders() {
                   <Button
                     className="flex-1"
                     onClick={() => {
-                      if (String(selectedOrder.invoice_printed) === '0') {
+                      const enablePaymentWithoutPrinting = Boolean(
+                        Number(posStore.posProfile?.enable_payment_without_printing) === 1 ||
+                        Number((posStore.posProfile as any)?.custom_enable_payment_without_printing) === 1
+                      );
+                      if (String(selectedOrder.invoice_printed) === '0' && !enablePaymentWithoutPrinting) {
                         showToast.error(t('errors.please_print_first'));
                         return;
                       }
@@ -838,6 +873,7 @@ export default function Orders() {
       </div>
       {showPaymentDialog && selectedOrder && (
         <PaymentDialog
+          order={selectedOrder}
           onClose={() => setShowPaymentDialog(false)}
           grandTotal={selectedOrderTotals.grandTotal}
           roundedTotal={selectedOrderTotals.roundedTotal}

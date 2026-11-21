@@ -1,12 +1,13 @@
 import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useState } from 'react';
-import { getCurrencySymbol } from '@ury/core';
 import { Page, Section, Panel, Badge, Spinner, DataTable, Input, Select, SelectItem, Button, type DataTableColumn } from '@ury/ui';
 import {
   paymentTerminalService,
   PaymentTerminal,
   PaymentTerminalTransaction,
 } from '../../services/paymentTerminal';
+import { useCurrency } from '../../context/CurrencyContext';
+import { __ } from '../../i18n';
 
 const PROVIDERS = ['Simulated', 'Ingenico', 'PAX', 'Verifone', 'Other'];
 
@@ -14,14 +15,6 @@ const formatDateTime = (value?: string) => {
   if (!value) return '';
   const d = new Date(value);
   return d.toLocaleString(getManagementLocale());
-};
-
-const formatCurrency = (value?: number) => {
-  if (value === undefined) return '';
-  return `${getCurrencySymbol()} ${value.toLocaleString(getManagementLocale(), {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 };
 
 const getStatusBadgeVariant = (status: string) => {
@@ -51,6 +44,7 @@ const getTransactionStatusBadgeVariant = (status: string) => {
 };
 
 const PaymentTerminalContent: React.FC = () => {
+  const { format } = useCurrency();
   const [terminals, setTerminals] = useState<PaymentTerminal[]>([]);
   const [transactions, setTransactions] = useState<PaymentTerminalTransaction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,7 +67,7 @@ const PaymentTerminalContent: React.FC = () => {
       setTerminals(data);
     } catch (err) {
       setTerminals([]);
-      setError('Unable to load payment terminals.');
+      setError(__('Unable to load payment terminals.'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -102,7 +96,7 @@ const PaymentTerminalContent: React.FC = () => {
     e.preventDefault();
 
     if (!formData.terminal_id) {
-      setCreateError('Terminal ID is required');
+      setCreateError(__('Terminal ID is required'));
       return;
     }
 
@@ -124,7 +118,7 @@ const PaymentTerminalContent: React.FC = () => {
 
       await loadTerminals();
     } catch (err: any) {
-      setCreateError(err.message || 'Failed to create terminal');
+      setCreateError(err.message || __('Failed to create terminal'));
       console.error(err);
     } finally {
       setCreateLoading(false);
@@ -134,21 +128,21 @@ const PaymentTerminalContent: React.FC = () => {
   return (
     <Page>
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Payment Terminals</h1>
+        <h1 className="text-xl font-semibold text-foreground">{__('Payment Terminals')}</h1>
         <p className="mt-1 text-sm text-text-tertiary">
-          Register and manage payment terminal devices. Monitor terminal status and view transaction history.
+          {__('Register and manage payment terminal devices. Monitor terminal status and view transaction history.')}
         </p>
       </div>
 
       <Section>
         <div>
-          <h2 className="text-lg font-semibold text-foreground mb-4">Register New Terminal</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">{__('Register New Terminal')}</h2>
           <Panel pad>
           <form onSubmit={handleCreateTerminal} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="flex flex-col">
                 <label className="text-sm font-medium text-muted-foreground mb-1">
-                  Terminal ID <span className="text-destructive">*</span>
+                  {__('Terminal ID')} <span className="text-destructive">*</span>
                 </label>
                 <Input
                   type="text"
@@ -156,14 +150,14 @@ const PaymentTerminalContent: React.FC = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, terminal_id: e.target.value })
                   }
-                  placeholder="e.g., TERM-001"
+                  placeholder={__('e.g., TERM-001')}
                   disabled={createLoading}
                 />
               </div>
 
               <div className="flex flex-col">
                 <label className="text-sm font-medium text-muted-foreground mb-1">
-                  Device
+                  {__('Device')}
                 </label>
                 <Input
                   type="text"
@@ -171,14 +165,14 @@ const PaymentTerminalContent: React.FC = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, device: e.target.value })
                   }
-                  placeholder="e.g., Ingenico iCT2X0"
+                  placeholder={__('e.g., Ingenico iCT2X0')}
                   disabled={createLoading}
                 />
               </div>
 
               <div className="flex flex-col">
                 <label className="text-sm font-medium text-muted-foreground mb-1">
-                  Provider
+                  {__('Provider')}
                 </label>
                 <Select
                   value={formData.provider}
@@ -201,7 +195,7 @@ const PaymentTerminalContent: React.FC = () => {
                   disabled={createLoading}
                   className="w-full"
                 >
-                  {createLoading ? 'Creating...' : 'Register Terminal'}
+                  {createLoading ? __('Creating...') : __('Register Terminal')}
                 </Button>
               </div>
             </div>
@@ -218,7 +212,7 @@ const PaymentTerminalContent: React.FC = () => {
 
       <Section>
         <div>
-          <h2 className="text-lg font-semibold text-foreground mb-4">Registered Terminals</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">{__('Registered Terminals')}</h2>
           {loading ? (
             <div className="flex items-center justify-center rounded-lg border border-border bg-card py-16">
               <Spinner className="h-8 w-8 text-primary" />
@@ -230,32 +224,32 @@ const PaymentTerminalContent: React.FC = () => {
           ) : terminals.length === 0 ? (
             <Panel pad>
               <div className="text-center text-sm text-text-tertiary">
-                No payment terminals registered yet. Create one using the form above.
+                {__('No payment terminals registered yet. Create one using the form above.')}
               </div>
             </Panel>
           ) : (
           <>
             {(() => {
               const terminalColumns: DataTableColumn<PaymentTerminal>[] = [
-                { key: 'terminal_id', header: 'Terminal ID' },
-                { key: 'device', header: 'Device', render: (terminal) => terminal.device || '-' },
-                { key: 'provider', header: 'Provider', render: (terminal) => terminal.provider || '-' },
+                { key: 'terminal_id', header: __('Terminal ID') },
+                { key: 'device', header: __('Device'), render: (terminal) => terminal.device || '-' },
+                { key: 'provider', header: __('Provider'), render: (terminal) => terminal.provider || '-' },
                 {
                   key: 'status',
-                  header: 'Status',
+                  header: __('Status'),
                   render: (terminal) => (
                     <Badge size="tag" variant={getStatusBadgeVariant(terminal.status || 'Idle')}>
-                      {terminal.status || 'Idle'}
+                      {terminal.status || __('Idle')}
                     </Badge>
                   ),
                 },
                 {
                   key: 'last_seen',
-                  header: 'Last Seen',
+                  header: __('Last Seen'),
                   render: (terminal) => formatDateTime(terminal.last_seen),
                 },
               ];
-              return <DataTable columns={terminalColumns} rows={terminals} emptyMessage="No terminals found." />;
+              return <DataTable columns={terminalColumns} rows={terminals} emptyMessage={__('No terminals found.')} />;
             })()}
           </>
         )}
@@ -264,7 +258,7 @@ const PaymentTerminalContent: React.FC = () => {
 
       <Section>
         <div>
-          <h2 className="text-lg font-semibold text-foreground mb-4">Transaction Log</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">{__('Transaction Log')}</h2>
           {transactionLoading ? (
             <div className="flex items-center justify-center rounded-lg border border-border bg-card py-16">
               <Spinner className="h-8 w-8 text-primary" />
@@ -272,37 +266,37 @@ const PaymentTerminalContent: React.FC = () => {
           ) : transactions.length === 0 ? (
             <Panel pad>
               <div className="text-center text-sm text-text-tertiary">
-                No transactions recorded yet.
+                {__('No transactions recorded yet.')}
               </div>
             </Panel>
           ) : (
           <>
             {(() => {
               const transactionColumns: DataTableColumn<PaymentTerminalTransaction>[] = [
-                { key: 'terminal', header: 'Terminal', render: (tx) => <span className="font-mono text-xs">{tx.terminal || '-'}</span> },
-                { key: 'invoice', header: 'Invoice', render: (tx) => <span className="font-mono text-xs">{tx.invoice || '-'}</span> },
+                { key: 'terminal', header: __('Terminal'), render: (tx) => <span className="font-mono text-xs">{tx.terminal || '-'}</span> },
+                { key: 'invoice', header: __('Invoice'), render: (tx) => <span className="font-mono text-xs">{tx.invoice || '-'}</span> },
                 {
                   key: 'amount',
-                  header: 'Amount',
+                  header: __('Amount'),
                   align: 'right',
-                  render: (tx) => formatCurrency(tx.amount),
+                  render: (tx) => (tx.amount === undefined ? '' : format(tx.amount, tx.currency)),
                 },
                 {
                   key: 'status',
-                  header: 'Status',
+                  header: __('Status'),
                   render: (tx) => (
                     <Badge size="tag" variant={getTransactionStatusBadgeVariant(tx.status || 'Pending')}>
-                      {tx.status || 'Pending'}
+                      {tx.status || __('Pending')}
                     </Badge>
                   ),
                 },
                 {
                   key: 'created_at',
-                  header: 'Created',
+                  header: __('Created'),
                   render: (tx) => <span className="text-xs">{formatDateTime(tx.created_at)}</span>,
                 },
               ];
-              return <DataTable columns={transactionColumns} rows={transactions} emptyMessage="No transactions found." />;
+              return <DataTable columns={transactionColumns} rows={transactions} emptyMessage={__('No transactions found.')} />;
             })()}
           </>
         )}

@@ -1,12 +1,14 @@
 export { createFrappeClient, call, db, auth } from './frappe/client';
-export { getLoggedUser, getUserRoles, logout } from './frappe/auth';
+export { getLoggedUser, getUserRoles, logout, login } from './frappe/auth';
 export {
   isUserRestrictedFromTableOrders,
+  shouldMaskAmounts,
   canCaptainTransfer,
   canOrderOnBehalf,
   canSettleOnCredit,
   derivePOSCapabilities,
 } from './frappe/roles';
+export { parseFrappeError } from './frappe/errors';
 export {
   buildDeskUrl,
   withReturnContext,
@@ -15,24 +17,44 @@ export {
   appLabelForPath,
   DESK_RETURN_PARAM,
   DESK_RETURN_LABEL_PARAM,
+  DESK_RETURN_STORAGE_KEY,
   RETURN_TO_ALLOWED_PREFIXES,
 } from './frappe/deskLink';
 export type { ReturnContext, BuildDeskUrlOptions } from './frappe/deskLink';
 export type { POSCapabilities } from './frappe/roles';
 export type { User, PosProfileCombined } from './types';
+export { isPrintStatusDisabled } from './types';
 export { storage } from './storage';
 export {
   formatCurrency,
   formatCompactCurrency,
+  formatFixedAmount,
+  siteCurrencyCode,
+  currencyDisplaySymbol,
+  SAR_SIGN,
   formatInvoiceTime,
+  normalizeFrappeTime,
   getCurrencySymbol,
   getCurrencyCode,
   setCurrency,
   getAmountLocale,
+  setActiveCurrency,
+  getActiveCurrency,
+  currencyFractionDigits,
+  MIXED_CURRENCY,
 } from './format';
+export type { CurrencyInfo } from './format';
 export { initPrinting, loadQzPrinter, disconnectQzPrinter, printWithQz } from './print/qz';
+export { resolveDefaultCustomer, profileLacksDefaultCustomerConfig } from './utils/defaultCustomer';
+export type {
+  DefaultCustomerEntry,
+  DefaultCustomerConfig,
+  ResolvedDefaultCustomer,
+} from './utils/defaultCustomer';
 export { validateFieldValue } from './utils/validateField';
 export type { ValidationMessages } from './utils/validateField';
+export { validatePhoneNumber, sanitizePhoneNumber, getCountryCallingCode, COUNTRY_CALLING_CODES } from './utils/phoneValidation';
+export type { PhoneValidationResult } from './utils/phoneValidation';
 export {
   resolveUryLanguage,
   setUryLanguage,

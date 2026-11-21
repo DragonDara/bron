@@ -8,11 +8,12 @@ import {
   useImperativeHandle,
   type ReactNode,
 } from 'react';
-import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
+import { MessageCircle, X, Send, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { cn, buttonVariants, Input } from '@ury/ui';
+import { cn, buttonVariants, Input, ChatMarkdown } from '@ury/ui';
 import { useActiveReportContext } from './ActiveReportContext';
 import { resolveReportNavigation, navigateToReportSlug } from './reportNavigation';
+import { __ } from '../../i18n';
 
 /**
  * `ChatWidget` mounts once in the app shell (see App.tsx); the ⌘K ask bar
@@ -64,6 +65,56 @@ export function useAiEnabled() {
   return useContext(AiEnabledContext);
 }
 
+/**
+ * Page context sent with every message: the report being viewed plus the
+ * branch picked in the dashboard's branch switcher (BranchContext persists
+ * it to localStorage; ChatWidget mounts outside BranchProvider so it reads
+ * the stored value instead of the hook). The agent uses it as the default
+ * scope when the user doesn't name a branch.
+ */
+function buildChatContext(activeReport: ReturnType<typeof useActiveReportContext>['activeReport']) {
+  const ctx: Record<string, unknown> = { ...(activeReport ?? {}) };
+  try {
+    const branch = window.localStorage.getItem('ury_active_branch_id');
+    if (branch && branch !== 'all') ctx.selected_branch = branch;
+  } catch {
+    // storage unavailable — send report context only
+  }
+  return Object.keys(ctx).length ? JSON.stringify(ctx) : undefined;
+}
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 120_000;
+
+/** Polls `get_run_result` until the Agent Run is done. Never throws. */
+async function pollRun(
+  call: { get: (m: string, a?: Record<string, unknown>) => Promise<{ message?: any }> },
+  runId: string
+): Promise<{ text: string } | { error: string }> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    let data: any;
+    try {
+      data = (await call.get('ury.ury.api.ury_chat.get_run_result', { agent_run_id: runId })).message;
+    } catch (err) {
+      console.error('Error polling chat run:', err);
+      continue; // transient failure; keep trying until the deadline
+    }
+    if (!data?.available) return { error: __("Sorry, the assistant isn't available right now.") };
+    if (data.status === 'Failed') {
+      return {
+        error: `Sorry, the assistant couldn't answer${data.error_message ? `: ${data.error_message}` : '.'}`,
+      };
+    }
+    if (data.status === 'Success') {
+      const text = typeof data.response === 'string' ? data.response.trim() : '';
+      return text ? { text } : { error: __('The assistant returned an empty answer.') };
+    }
+  }
+  return { error: __('The assistant is taking too long to respond. Please try again.') };
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -90,6 +141,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [hasMounted, setHasMounted] = useState(false); // lazy-mount gate
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null); // null = not yet known
@@ -97,9 +149,11 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const [initializing, setInitializing] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   // Guards against double-starting the init fetch. Deliberately a ref, not
   // the `initializing` state: putting `initializing` in the effect's own
   // dependency array below causes the state update it makes to retrigger
@@ -132,7 +186,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
         // POST, not GET: this can create a new Agent Conversation record,
         // and a GET request's DB transaction is never committed by Frappe.
         const res = await call.post('ury.ury.api.ury_chat.get_or_create_conversation', {
-          report_context: activeReport ? JSON.stringify(activeReport) : undefined,
+          report_context: buildChatContext(activeReport),
         });
         const data = res.message;
         if (cancelled) return;
@@ -150,7 +204,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
           // {available: false} response above) — still degrade quietly
           // rather than throwing, per PLAN.md item 4.
           setAvailable(false);
-          setUnavailableReason('Assistant is temporarily unavailable.');
+          setUnavailableReason(__('Assistant is temporarily unavailable.'));
           console.error('Error initializing HUF chat:', err);
         }
       } finally {
@@ -163,6 +217,12 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
       cancelled = true;
     };
   }, [hasMounted, conversationId, activeReport]);
+
+  // Keep the latest message (or the typing indicator) in view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, sending]);
 
   const handleOpen = () => {
     setOpen(true);
@@ -183,7 +243,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
       const res = await call.post('ury.ury.api.ury_chat.send_chat_message', {
         conversation_id: conversationId,
         message: text,
-        report_context: activeReport ? JSON.stringify(activeReport) : undefined,
+        report_context: buildChatContext(activeReport),
       });
       const data = res.message;
 
@@ -193,17 +253,34 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
         return;
       }
 
-      const responseText =
-        typeof data.response === 'string'
-          ? data.response
-          : // HUF's send_message_to_conversation() returns
-            // {"success": true, "response": "<reply text>"} -- check that
-            // nested `.response` before falling back to `.message`/`.text`
-            // (other HUF response shapes) or a last-resort JSON dump.
-            (data.response?.response ??
-              data.response?.message ??
-              data.response?.text ??
-              JSON.stringify(data.response));
+      let finalResponse: unknown = data.response;
+      let responseText: string;
+
+      if (finalResponse && typeof finalResponse === 'object' && (finalResponse as any).queued) {
+        // Huf answers asynchronously: poll the Agent Run until it finishes.
+        setThinking(true);
+        const runId = (finalResponse as any).agent_run_id as string | undefined;
+        const polled = runId ? await pollRun(call, runId) : { error: __('No run id returned.') };
+        if ('error' in polled) {
+          responseText = polled.error;
+          finalResponse = null;
+        } else {
+          responseText = polled.text;
+          finalResponse = polled.text;
+        }
+      } else {
+        responseText =
+          typeof finalResponse === 'string'
+            ? finalResponse
+            : // HUF's send_message_to_conversation() returns
+              // {"success": true, "response": "<reply text>"} -- check that
+              // nested `.response` before falling back to `.message`/`.text`
+              // (other HUF response shapes) or a last-resort JSON dump.
+              ((finalResponse as any)?.response ??
+                (finalResponse as any)?.message ??
+                (finalResponse as any)?.text ??
+                JSON.stringify(finalResponse));
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -212,7 +289,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
 
       // PLAN.md item 5 — see reportNavigation.ts for the documented
       // assumption this narrow convention makes.
-      const navigateSlug = resolveReportNavigation(data.response, responseText);
+      const navigateSlug = resolveReportNavigation(finalResponse, responseText);
       if (navigateSlug) {
         navigateToReportSlug(navigate, navigateSlug);
       }
@@ -227,6 +304,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
         },
       ]);
     } finally {
+      setThinking(false);
       setSending(false);
     }
   };
@@ -241,57 +319,69 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
   const isDisabled = available === false;
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+    <div className="fixed bottom-5 end-5 z-50 flex flex-col items-end gap-3">
       {open && (
         <div
           className={cn(
-            'flex w-[360px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg',
-            'border border-border bg-card shadow-lg'
+            'flex max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg',
+            'border border-border bg-card shadow-lg',
+            expanded ? 'w-[640px]' : 'w-[420px]'
           )}
-          style={{ height: 460 }}
+          style={{ height: expanded ? 'min(720px, calc(100vh - 2.5rem))' : 520 }}
         >
           {/* Header — mirrors the mockup's HUF-branded "ask" chrome */}
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <span className="rounded border border-chat-accent/30 bg-chat-accent/6 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-chat-accent">
-                HUF
+                {__('HUF')}
               </span>
               <span className="truncate text-sm font-medium text-foreground">
-                {activeReport ? activeReport.label : 'Ask about tonight'}
+                {activeReport ? activeReport.label : __('Ask about tonight')}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded p-1 text-muted-foreground hover:bg-muted"
-              aria-label="Close chat"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="rounded p-1 text-muted-foreground hover:bg-muted"
+                aria-label={expanded ? __('Shrink chat') : __('Expand chat')}
+              >
+                {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded p-1 text-muted-foreground hover:bg-muted"
+                aria-label={__('Close chat')}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
             {available === false ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <Sparkles className="h-5 w-5 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  The assistant isn't available right now.
+                  {__("The assistant isn't available right now.")}
                 </p>
                 {unavailableReason && (
                   <p className="text-xs text-muted-foreground/70">
-                    Dashboard data is unaffected — this only disables chat.
+                    {__('Dashboard data is unaffected — this only disables chat.')}
                   </p>
                 )}
               </div>
             ) : messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
                 {initializing ? (
-                  <p className="text-sm">Connecting…</p>
+                  <p className="text-sm">{__('Connecting…')}</p>
                 ) : (
                   <p className="text-sm">
-                    Ask about {activeReport ? activeReport.label.toLowerCase() : 'tonight'} —
-                    e.g. &ldquo;which tables are running long?&rdquo;
+                    {activeReport
+                      ? __('Ask about {0} — e.g. "which tables are running long?"', [activeReport.label.toLowerCase()])
+                      : __('Ask about tonight — e.g. "which tables are running long?"')}
                   </p>
                 )}
               </div>
@@ -301,15 +391,34 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
                   <div
                     key={m.id}
                     className={cn(
-                      'max-w-[85%] rounded-lg px-3 py-2 text-sm',
+                      'min-w-0 rounded-lg px-3 py-2 text-sm leading-relaxed',
                       m.role === 'user'
-                        ? 'ml-auto bg-primary text-primary-foreground'
-                        : 'mr-auto bg-muted text-foreground'
+                        ? 'ms-auto max-w-[85%] whitespace-pre-wrap break-words bg-primary text-primary-foreground [overflow-wrap:anywhere]'
+                        : 'me-auto max-w-[95%] bg-muted text-foreground'
                     )}
                   >
-                    {m.text}
+                    {m.role === 'assistant' ? <ChatMarkdown>{m.text}</ChatMarkdown> : m.text}
                   </div>
                 ))}
+                {sending && thinking && (
+                  <div
+                    className="me-auto animate-pulse rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+                    role="status"
+                  >
+                    {__('Thinking…')}
+                  </div>
+                )}
+                {sending && !thinking && (
+                  <div
+                    className="me-auto flex items-center gap-1 rounded-lg bg-muted px-3 py-2.5"
+                    aria-label={__('Assistant is typing')}
+                    role="status"
+                  >
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -330,7 +439,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
                 onKeyDown={handleKeyDown}
                 disabled={isDisabled || sending}
                 placeholder={
-                  isDisabled ? 'Assistant unavailable' : 'Ask HUF about tonight…'
+                  isDisabled ? __('Assistant unavailable') : __('Ask HUF about tonight…')
                 }
                 className="min-w-0 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0 h-auto"
               />
@@ -339,7 +448,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
                 onClick={handleSend}
                 disabled={isDisabled || sending || !draft.trim() || !conversationId}
                 className="text-primary disabled:text-muted-foreground disabled:cursor-not-allowed"
-                aria-label="Send message"
+                aria-label={__('Send message')}
               >
                 <Send className="h-4 w-4" />
               </button>
@@ -356,7 +465,7 @@ const ChatWidget = forwardRef<ChatWidgetHandle>(function ChatWidget(_props, ref)
             buttonVariants({ variant: 'default' }),
             'h-14 w-14 rounded-full p-0 shadow-lg transition-transform hover:scale-105'
           )}
-          aria-label="Open assistant chat"
+          aria-label={__('Open assistant chat')}
         >
           <MessageCircle className="h-6 w-6" />
         </button>

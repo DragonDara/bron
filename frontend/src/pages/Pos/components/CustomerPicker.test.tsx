@@ -3,15 +3,21 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CustomerPicker } from "./CustomerPicker";
 
-const searchCustomersMock = vi.fn();
-const addCustomerMock = vi.fn();
-vi.mock("../lib/customer-api", () => ({ searchCustomers: (...a: any) => searchCustomersMock(...a), addCustomer: (...a: any) => addCustomerMock(...a) }));
+const mockCustomerApi = vi.hoisted(() => ({
+  searchCustomers: vi.fn(),
+  getCustomersByOrderType: vi.fn(),
+  addCustomer: vi.fn(),
+}));
+vi.mock("../lib/customer-api", () => mockCustomerApi);
 vi.mock("../store/pos-store", () => ({ usePOSStore: () => ({ customerGroups: [], territories: [], fetchCustomerGroups: vi.fn(), fetchTerritories: vi.fn() }) }));
 vi.mock("../i18n", () => ({ t: (key: string) => key }));
 
 describe("CustomerPicker", () => {
-  beforeEach(() => { cleanup(); vi.clearAllMocks(); });
-  
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mockPosProfile = null;
+  });
   it("renders search input when no customer selected", () => {
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     expect(screen.getByPlaceholderText("customer.search_placeholder")).toBeInTheDocument();
@@ -33,21 +39,34 @@ describe("CustomerPicker", () => {
   });
 
   it("searches customers when input changes", async () => {
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
     await user.type(input, "John");
-    await waitFor(() => { expect(searchCustomersMock).toHaveBeenCalled(); });
+    await waitFor(() => { expect(mockCustomerApi.searchCustomers).toHaveBeenCalled(); });
   });
 
   it("shows latest customers on focus before typing", async () => {
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     await user.click(screen.getByPlaceholderText("customer.search_placeholder"));
     await waitFor(() => { expect(screen.getByText("John Doe")).toBeInTheDocument(); });
-    expect(searchCustomersMock).toHaveBeenCalledWith("", 10);
+    expect(mockCustomerApi.searchCustomers).toHaveBeenCalledWith("", 10);
+  });
+
+  it("filters customers by order type while searching", async () => {
+    mockCustomerApi.getCustomersByOrderType.mockResolvedValue([
+      { name: "CUST-002", content: "Customer Name : Jane Doe|Mobile Number : 1234567890" },
+    ]);
+    const user = userEvent.setup();
+    render(<CustomerPicker value={null} onChange={vi.fn()} orderType="Dine In" />);
+    await user.click(screen.getByPlaceholderText("customer.search_placeholder"));
+    await waitFor(() => {
+      expect(mockCustomerApi.getCustomersByOrderType).toHaveBeenCalledWith("Dine In", "");
+    });
+    expect(await screen.findByText("Jane Doe")).toBeInTheDocument();
   });
 
   it("disables input when disabled prop is true", () => {
@@ -57,7 +76,7 @@ describe("CustomerPicker", () => {
   });
 
   it("handles search errors gracefully", async () => {
-    searchCustomersMock.mockRejectedValue(new Error("Search failed"));
+    mockCustomerApi.searchCustomers.mockRejectedValue(new Error("Search failed"));
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={vi.fn()} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
@@ -68,7 +87,7 @@ describe("CustomerPicker", () => {
 
   it("calls onChange when customer selected", async () => {
     const onChange = vi.fn();
-    searchCustomersMock.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
+    mockCustomerApi.searchCustomers.mockResolvedValue([{ name: "CUST-001", content: "Customer Name : John Doe|Mobile Number : 9999999999" }]);
     const user = userEvent.setup();
     render(<CustomerPicker value={null} onChange={onChange} />);
     const input = screen.getByPlaceholderText("customer.search_placeholder");
@@ -78,4 +97,87 @@ describe("CustomerPicker", () => {
     await user.click(screen.getByText("John Doe"));
     expect(onChange).toHaveBeenCalled();
   });
+
+  it("validates mobile number against POS Profile country (India) and displays error", async () => {
+    mockPosProfile = { name: "POS-India", country: "India" };
+    searchCustomersMock.mockResolvedValue([]);
+    addCustomerMock.mockResolvedValue({
+      data: { name: "CUST-002", customer_name: "Rahul Sharma", mobile_number: "9876543210" },
+    });
+
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<CustomerPicker value={null} onChange={onChange} />);
+
+    const searchInput = screen.getByPlaceholderText("customer.search_placeholder");
+    await user.click(searchInput);
+    await user.type(searchInput, "Rahul");
+
+    const addNewBtn = await screen.findByText("customer.add_new");
+    await user.click(addNewBtn);
+
+    const nameInput = screen.getByLabelText(/customer\.name_label/);
+    const phoneInput = screen.getByLabelText(/customer\.phone_label/);
+
+    expect(nameInput).toHaveValue("Rahul");
+    // Mobile number field should show country code +91 as already entered
+    expect(phoneInput).toHaveValue("+91");
+
+    // Enter invalid phone number for India
+    await user.clear(phoneInput);
+    await user.type(phoneInput, "+9112345");
+    const submitBtn = screen.getByRole("button", { name: "customer.add_button" });
+    await user.click(submitBtn);
+
+    // Should display validation error and not call addCustomer
+    expect(await screen.findByText("Invalid mobile number for India")).toBeInTheDocument();
+    expect(addCustomerMock).not.toHaveBeenCalled();
+
+    // Now fix to valid 10-digit India number
+    await user.clear(phoneInput);
+    await user.type(phoneInput, "+919876543210");
+    await user.click(submitBtn);
+
+    await waitFor(() => {
+      expect(addCustomerMock).toHaveBeenCalledWith({
+        customer_name: "Rahul",
+        mobile_number: "+919876543210",
+        pos_profile: "POS-India",
+      });
+    });
+    expect(onChange).toHaveBeenCalledWith({
+      id: "CUST-002",
+      name: "Rahul Sharma",
+      phone: "9876543210",
+    });
+  });
+
+  it("validates UAE mobile numbers correctly and displays error", async () => {
+    mockPosProfile = { name: "POS-UAE", country: "United Arab Emirates" };
+    searchCustomersMock.mockResolvedValue([]);
+
+    const user = userEvent.setup();
+    render(<CustomerPicker value={null} onChange={vi.fn()} />);
+
+    const searchInput = screen.getByPlaceholderText("customer.search_placeholder");
+    await user.click(searchInput);
+    await user.type(searchInput, "Ahmed");
+
+    const addNewBtn = await screen.findByText("customer.add_new");
+    await user.click(addNewBtn);
+
+    const phoneInput = screen.getByLabelText(/customer\.phone_label/);
+    // Mobile number field should show country code +971 as already entered
+    expect(phoneInput).toHaveValue("+971");
+
+    await user.clear(phoneInput);
+    await user.type(phoneInput, "+97112345");
+
+    const submitBtn = screen.getByRole("button", { name: "customer.add_button" });
+    await user.click(submitBtn);
+
+    expect(await screen.findByText("Invalid mobile number for United Arab Emirates")).toBeInTheDocument();
+    expect(addCustomerMock).not.toHaveBeenCalled();
+  });
 });
+

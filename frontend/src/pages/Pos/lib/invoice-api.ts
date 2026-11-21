@@ -6,6 +6,7 @@ import type { Filter } from 'frappe-js-sdk/lib/db/types';
 export interface POSInvoice {
   name: string;
   invoice_printed: number;
+  custom_printing_time?: string | null;
   grand_total: number;
   restaurant_table: string | null;
   cashier: string;
@@ -188,6 +189,7 @@ export function mapSplitGroupInvoiceToPOSInvoice(inv: SplitGroupInvoice): POSInv
   return {
     name: inv.name,
     invoice_printed: inv.invoice_printed,
+    custom_printing_time: inv.custom_printing_time ?? null,
     grand_total: inv.grand_total,
     restaurant_table: inv.restaurant_table,
     custom_merged_tables: inv.custom_merged_tables,
@@ -245,11 +247,17 @@ export async function networkPrint(orderId: string, printer: string, printFormat
 }
 
 export async function selectNetworkPrinter(orderId: string, posProfile: string, printFormat?: string | null) {
-  await call.post('ury.ury.api.ury_print.select_network_printer', {
+  const res = await call.post('ury.ury.api.ury_print.select_network_printer', {
     invoice_id: orderId,
     pos_profile: posProfile,
     print_format: printFormat,
   });
+  if (res?.message === null || res?.message === undefined) {
+    throw new Error('No bill printer configured for this order. Please configure a bill printer in POS Profile or Room.');
+  }
+  if (res?.message?.status === 'Failure') {
+    throw new Error(res?.message?.message || 'Print job failed');
+  }
 }
 
 
@@ -301,17 +309,17 @@ export function getCombinedOrderTotals(
 }
 
 export function isMergedBill(order: Pick<POSInvoice, 'custom_merged_pos_invoice'>) {
-  return !!order.custom_merged_pos_invoice;
+  return !!order?.custom_merged_pos_invoice;
 }
 
 export function resolvePrintFormat(
   order: Pick<POSInvoice, 'custom_merged_pos_invoice'>,
   defaultFormat: string | null | undefined
 ) {
-  if (order.custom_merged_pos_invoice) {
+  if (order?.custom_merged_pos_invoice) {
     return MERGED_POS_INVOICE_PRINT_FORMAT;
   }
-  return defaultFormat as string;
+  return (defaultFormat || '') as string;
 }
 
 export const MERGE_CANDIDATE_PAGE_SIZE = 10;
@@ -329,6 +337,7 @@ const MERGE_CANDIDATE_FIELDS = [
   'custom_merged_tables',
   'status',
   'invoice_printed',
+  'custom_printing_time',
   'mobile_number',
 ] as const;
 

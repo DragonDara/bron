@@ -34,6 +34,10 @@ vi.mock("./pages/Table", () => ({
   default: () => <div data-testid="table-page">Table</div>,
 }));
 
+vi.mock("./pages/Reservations", () => ({
+  default: () => <div data-testid="reservations-page">Reservations</div>,
+}));
+
 vi.mock("./pages/Dashboard", () => ({
   default: () => <div data-testid="dashboard-page">Dashboard</div>,
 }));
@@ -88,27 +92,23 @@ vi.mock("./components/chat/ActiveReportContext", () => ({
   ActiveReportProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="active-report-provider">{children}</div>,
 }));
 
-vi.mock("./i18n", () => ({
-  getActiveLanguage: () => "en",
-}));
-
 vi.mock("./store/pos-store", () => ({
   usePOSStore: () => ({
     initializeApp: vi.fn(),
   }),
 }));
 
-// vi.mock factories are hoisted above this declaration, so the mock must be hoisted too.
-const mockCall = vi.hoisted(() => ({
-  get: vi.fn().mockResolvedValue({ message: { enabled: false } }),
+const { mockCall } = vi.hoisted(() => ({
+  mockCall: {
+    get: vi.fn().mockResolvedValue({ message: { enabled: false } }),
+  },
 }));
 
 vi.mock("@ury/core", () => ({
   call: mockCall,
 }));
 
-// Skipped 2026-10-29 (red on v3-stg CI): suite failed to load (mockCall used before init). TODO: investigate.
-describe.skip("App", () => {
+describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCall.get.mockResolvedValue({ message: { enabled: false } });
@@ -128,4 +128,5 @@ describe.skip("App", () => {
     render(<App />);
     expect(screen.getByTestId("app-layout")).toBeInTheDocument();
   });
+
 });

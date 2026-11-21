@@ -59,7 +59,7 @@ test.describe('POS app', () => {
     await page.goto('/login');
     await page.fill('#login_email', URY_E2E_USER);
     await page.fill('#login_password', URY_E2E_PASSWORD);
-    await page.click('.btn-login');
+    await page.press('#login_password', 'Enter');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
     await page.goto('/pos/order');
@@ -116,7 +116,7 @@ test.describe('POS app', () => {
     await page.goto('/login');
     await page.fill('#login_email', URY_E2E_USER);
     await page.fill('#login_password', URY_E2E_PASSWORD);
-    await page.click('.btn-login');
+    await page.press('#login_password', 'Enter');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
     await page.goto('/pos/order');
@@ -153,7 +153,7 @@ test.describe('POS app', () => {
     await page.goto('/login');
     await page.fill('#login_email', URY_E2E_USER);
     await page.fill('#login_password', URY_E2E_PASSWORD);
-    await page.click('.btn-login');
+    await page.press('#login_password', 'Enter');
     await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
     await page.goto('/pos/order');
@@ -208,7 +208,7 @@ test.describe('POS app', () => {
     await cashierPage.goto('/login');
     await cashierPage.fill('#login_email', URY_E2E_CASHIER);
     await cashierPage.fill('#login_password', URY_E2E_CASHIER_PASSWORD);
-    await cashierPage.click('.btn-login');
+    await cashierPage.press('#login_password', 'Enter');
     await cashierPage.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 
     // Open the Orders page and the Unbilled filter.

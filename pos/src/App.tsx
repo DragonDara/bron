@@ -3,6 +3,7 @@ import AppLayout from './components/AppLayout';
 import Orders from './pages/Orders';
 import POS from './pages/POS';
 import Table from './pages/Table';
+import Reservations from './pages/Reservations';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import OpenEntries from './pages/OpenEntries';
@@ -10,6 +11,7 @@ import AuthGuard from './components/AuthGuard';
 import POSOpeningProvider from './components/POSOpeningProvider';
 import ScreenSizeProvider from './components/ScreenSizeProvider';
 import KotAlertListener from './components/KotAlertListener';
+import { PrinterWatchProvider } from './components/PrinterWatch';
 import CaptainRouteGuard from './captain/components/CaptainRouteGuard';
 import CaptainTables from './captain/pages/CaptainTables';
 import CaptainOrder from './captain/pages/CaptainOrder';
@@ -73,7 +75,7 @@ function App() {
   }, [initializeApp, posProfile, user]);
 
   return (
-    <>
+    <PrinterWatchProvider>
       <ToastProvider />
       <KotAlertListener />
       <ScreenSizeProvider>
@@ -99,7 +101,9 @@ function App() {
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/register" element={<POS />} />
                         <Route path="/tables" element={<Table />} />
+                        <Route path="/table" element={<Table />} />
                         <Route path="/orders" element={<Orders />} />
+                        <Route path="/reservations" element={<Reservations />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/open-entries" element={<OpenEntries />} />
                       </Route>
@@ -137,7 +141,7 @@ function App() {
           </Router>
         </AuthGuard>
       </ScreenSizeProvider>
-    </>
+    </PrinterWatchProvider>
   );
 }
 

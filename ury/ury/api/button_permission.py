@@ -3,9 +3,7 @@ import frappe
 
 @frappe.whitelist()
 def cancel_check():
-    if frappe.permissions.has_permission(
-        "POS Invoice", "cancel", raise_exception=False
-    ):
+    if frappe.has_permission("POS Invoice", "cancel", throw=False):
         permission = True
     else:
         permission = False

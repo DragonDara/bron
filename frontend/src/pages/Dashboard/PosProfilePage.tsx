@@ -6,9 +6,10 @@ import { Switch } from '../../components/ui/switch';
 import { call } from '@ury/core';
 import SideDrawer from '../../components/layout/SideDrawer';
 import { SearchableSelect } from '../../components/common/SearchableSelect';
+import { __ } from '../../i18n';
 
 const parseFrappeError = (err: any): string => {
-  let msg = err?.message || 'An error occurred';
+  let msg = err?.message || __('An error occurred');
   if (err?._server_messages) {
     try {
       const messages = JSON.parse(err._server_messages).map((m: any) => {
@@ -181,7 +182,7 @@ export const PosProfilePage: React.FC = () => {
 
     const hasDefaultPayment = addForm.payments.some(p => p.mode_of_payment && p.default);
     if (!hasDefaultPayment) {
-      showToast.error('Please select a default mode of payment');
+      showToast.error(__('Please select a default mode of payment'));
       return;
     }
 
@@ -263,11 +264,11 @@ export const PosProfilePage: React.FC = () => {
           payments: addForm.payments.filter(p => p.mode_of_payment).map(p => ({ mode_of_payment: p.mode_of_payment, default: p.default }))
         }
       });
-      showToast.success('POS Profile created successfully');
+      showToast.success(__('POS Profile created successfully'));
       setIsAddDrawerOpen(false);
       fetchProfiles();
     } catch (err: any) {
-      showToast.error(parseFrappeError(err) || 'Failed to create POS Profile');
+      showToast.error(parseFrappeError(err) || __('Failed to create POS Profile'));
     } finally {
       setSaving(false);
     }
@@ -382,7 +383,7 @@ export const PosProfilePage: React.FC = () => {
 
     const hasDefaultPayment = (profileForm.payments || []).some((p: any) => p.mode_of_payment && p.default);
     if (!hasDefaultPayment) {
-      showToast.error('Please select a default mode of payment');
+      showToast.error(__('Please select a default mode of payment'));
       return;
     }
 
@@ -420,7 +421,7 @@ export const PosProfilePage: React.FC = () => {
     const currentNorm = getNormalizedProfileData(profileForm);
 
     if (JSON.stringify(originalNorm) === JSON.stringify(currentNorm)) {
-      showToast.warning('No changes in document');
+      showToast.warning(__('No changes in document'));
       return;
     }
 
@@ -542,11 +543,11 @@ export const PosProfilePage: React.FC = () => {
         });
       }
 
-      showToast.success('POS Profile saved successfully');
+      showToast.success(__('POS Profile saved successfully'));
       fetchProfiles();
       setIsEditMode(false); // Return to read-only View Mode after successful save
     } catch (err: any) {
-      showToast.error(parseFrappeError(err) || 'Failed to save POS Profile');
+      showToast.error(parseFrappeError(err) || __('Failed to save POS Profile'));
       // Remains in Edit Mode if save fails
     } finally {
       setSaving(false);
@@ -565,14 +566,14 @@ export const PosProfilePage: React.FC = () => {
               onClick={() => setSelectedProfile(null)}
               className="text-foreground hover:text-primary flex items-center gap-1.5 shadow-2xs"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
+              <ArrowLeft className="w-4 h-4 rtl:-scale-x-100" />
+              <span>{__('Back')}</span>
             </Button>
             <div className="h-5 w-px bg-muted" />
             <div>
-              <h2 className="text-lg font-bold text-foreground">POS Profile: {selectedProfile.name}</h2>
+              <h2 className="text-lg font-bold text-foreground">{__('POS Profile:')} {selectedProfile.name}</h2>
               <p className="text-xs text-muted-foreground">
-                Company: {selectedProfile.company || 'URY Restaurant'} &bull; Branch: {selectedProfile.branch || 'Main Branch'}
+                {__('Company:')} {selectedProfile.company || __('URY Restaurant')} &bull; {__('Branch:')} {selectedProfile.branch || __('Main Branch')}
               </p>
             </div>
           </div>
@@ -583,8 +584,8 @@ export const PosProfilePage: React.FC = () => {
               disabled={saving}
               className="w-24 h-9 bg-primary hover:bg-primary/90 text-white font-semibold flex items-center justify-center shadow-xs shrink-0 rounded-md"
             >
-              <Save className="w-4 h-4 mr-1.5 shrink-0" />
-              <span>Save</span>
+              <Save className="w-4 h-4 me-1.5 shrink-0" />
+              <span>{__('Save')}</span>
             </Button>
           ) : (
             <Button
@@ -592,8 +593,8 @@ export const PosProfilePage: React.FC = () => {
               onClick={() => setIsEditMode(true)}
               className="w-24 h-9 bg-primary hover:bg-primary/90 text-white font-semibold flex items-center justify-center shadow-xs shrink-0 rounded-md"
             >
-              <Edit2 className="w-4 h-4 mr-1.5 shrink-0" />
-              <span>Edit</span>
+              <Edit2 className="w-4 h-4 me-1.5 shrink-0" />
+              <span>{__('Edit')}</span>
             </Button>
           )}
         </div>
@@ -606,7 +607,7 @@ export const PosProfilePage: React.FC = () => {
               }`}
           >
             <Settings2 className="w-4 h-4" />
-            <span>Details</span>
+            <span>{__('Details')}</span>
           </button>
           <button
             onClick={() => setActiveDetailTab('print_settings')}
@@ -614,7 +615,7 @@ export const PosProfilePage: React.FC = () => {
               }`}
           >
             <Printer className="w-4 h-4" />
-            <span>Print Settings</span>
+            <span>{__('Print Settings')}</span>
           </button>
           <button
             onClick={() => setActiveDetailTab('users_payments')}
@@ -622,7 +623,7 @@ export const PosProfilePage: React.FC = () => {
               }`}
           >
             <Shield className="w-4 h-4" />
-            <span>Users & Payments</span>
+            <span>{__('Users & Payments')}</span>
           </button>
         </div>
 
@@ -634,55 +635,55 @@ export const PosProfilePage: React.FC = () => {
               <div className="space-y-6">
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    General Settings
+                    {__('General Settings')}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Company</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Company')}</label>
                       <SearchableSelect
                         id="profile_company"
                         disabled={!isEditMode}
                         value={profileForm.company || ''}
                         onChange={(_, val) => setProfileForm(p => ({ ...p, company: val }))}
                         options={[
-                          { value: '', label: 'Select Company' },
+                          { value: '', label: __('Select Company') },
                           ...options.companies.map((c: any) => ({ value: c.name, label: c.name }))
                         ]}
-                        placeholder="Select Company"
+                        placeholder={__('Select Company')}
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Warehouse</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Warehouse')}</label>
                       <SearchableSelect
                         id="profile_warehouse"
                         disabled={!isEditMode}
                         value={profileForm.warehouse || ''}
                         onChange={(_, val) => setProfileForm(p => ({ ...p, warehouse: val }))}
                         options={[
-                          { value: '', label: 'Select Warehouse' },
+                          { value: '', label: __('Select Warehouse') },
                           ...options.warehouses.map((w: any) => ({ value: w.name, label: w.name }))
                         ]}
-                        placeholder="Select Warehouse"
+                        placeholder={__('Select Warehouse')}
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Price List</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Price List')}</label>
                       <Input
                         disabled={!isEditMode}
                         value={profileForm.selling_price_list || ''}
                         onChange={(e) => setProfileForm(p => ({ ...p, selling_price_list: e.target.value }))}
-                        placeholder="Standard Selling"
+                        placeholder={__('Standard Selling')}
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Print Format</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Print Format')}</label>
                       <Input
                         disabled={!isEditMode}
                         value={profileForm.print_format || ''}
                         onChange={(e) => setProfileForm(p => ({ ...p, print_format: e.target.value }))}
-                        placeholder="Default"
+                        placeholder={__('Default')}
                       />
                     </div>
                     <div>
@@ -702,7 +703,7 @@ export const PosProfilePage: React.FC = () => {
 
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Feature Toggles
+                    {__('Feature Toggles')}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
@@ -729,27 +730,27 @@ export const PosProfilePage: React.FC = () => {
 
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Numeric Settings
+                    {__('Numeric Settings')}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Show Limited Paid Invoices (Number)</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Show Limited Paid Invoices (Number)')}</label>
                       <Input
                         type="number"
                         disabled={!isEditMode}
                         value={profileForm.paid_limit || ''}
                         onChange={(e) => setProfileForm(p => ({ ...p, paid_limit: e.target.value }))}
-                        placeholder="e.g. 10"
+                        placeholder={__('e.g. 10')}
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Table Attention Time (minutes)</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Table Attention Time (minutes)')}</label>
                       <Input
                         type="number"
                         disabled={!isEditMode}
                         value={profileForm.table_attention_time || ''}
                         onChange={(e) => setProfileForm(p => ({ ...p, table_attention_time: e.target.value }))}
-                        placeholder="e.g. 15"
+                        placeholder={__('e.g. 15')}
                       />
                     </div>
                   </div>
@@ -808,16 +809,16 @@ export const PosProfilePage: React.FC = () => {
               <div className="space-y-6">
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Printer & QZ Configuration
+                    {__('Printer & QZ Configuration')}
                   </h4>
                   <div className="space-y-4">
                     <div>
-                      <label className="block font-semibold text-foreground mb-1.5">Default Print Format</label>
+                      <label className="block font-semibold text-foreground mb-1.5">{__('Default Print Format')}</label>
                       <Input
                         disabled={!isEditMode}
                         value={profileForm.print_format || ''}
                         onChange={(e) => setProfileForm(p => ({ ...p, print_format: e.target.value }))}
-                        placeholder="Default"
+                        placeholder={__('Default')}
                       />
                     </div>
 
@@ -825,14 +826,14 @@ export const PosProfilePage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-foreground flex items-center gap-1.5">
                           <Printer className="w-4 h-4 text-primary" />
-                          QZ Tray Hardware Printing & KOT Routing
+                          {__('QZ Tray Hardware Printing & KOT Routing')}
                         </span>
                         <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
-                          Direct Thermal Ready
+                          {__('Direct Thermal Ready')}
                         </Badge>
                       </div>
                       <p className="text-muted-foreground">
-                        Bill printer and KOT kitchen printer configuration are loaded automatically from POS Profile events and URY Printer Mappings.
+                        {__('Bill printer and KOT kitchen printer configuration are loaded automatically from POS Profile events and URY Printer Mappings.')}
                       </p>
                     </div>
                   </div>
@@ -846,7 +847,7 @@ export const PosProfilePage: React.FC = () => {
                 {/* Applicable For Users */}
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Applicable For Users
+                    {__('Applicable For Users')}
                   </h4>
                   <div className="space-y-2 mb-3">
                     {(profileForm.applicable_for_users || []).map((row: any, idx: number) => (
@@ -862,10 +863,10 @@ export const PosProfilePage: React.FC = () => {
                               setProfileForm({ ...profileForm, applicable_for_users: newRows });
                             }}
                             options={[
-                              { value: '', label: 'Select User' },
+                              { value: '', label: __('Select User') },
                               ...options.users.map((u: any) => ({ value: u.name, label: u.full_name || u.name }))
                             ]}
-                            placeholder="Select User"
+                            placeholder={__('Select User')}
                           />
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -878,7 +879,7 @@ export const PosProfilePage: React.FC = () => {
                               setProfileForm({ ...profileForm, applicable_for_users: newRows });
                             }}
                           />
-                          <span>Default</span>
+                          <span>{__('Default')}</span>
                         </div>
                         {isEditMode && (
                           <button type="button" className="text-muted-foreground hover:text-red-500 p-1" onClick={() => {
@@ -899,7 +900,7 @@ export const PosProfilePage: React.FC = () => {
                       onClick={() => setProfileForm({ ...profileForm, applicable_for_users: [...(profileForm.applicable_for_users || []), { user: '', default: 0 }] })}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Add User</span>
+                      <span>{__('Add User')}</span>
                     </Button>
                   )}
                 </div>
@@ -907,7 +908,7 @@ export const PosProfilePage: React.FC = () => {
                 {/* Mode of Payment */}
                 <div>
                   <h4 className="font-bold text-foreground text-xs uppercase tracking-wider mb-3 pb-2 border-b border-border">
-                    Mode of Payment
+                    {__('Mode of Payment')}
                   </h4>
                   <div className="space-y-2 mb-3">
                     {(profileForm.payments || []).map((row: any, idx: number) => {
@@ -926,15 +927,15 @@ export const PosProfilePage: React.FC = () => {
                                 setProfileForm({ ...profileForm, payments: newRows });
                               }}
                               options={[
-                                { value: '', label: 'Select Payment Mode' },
+                                { value: '', label: __('Select Payment Mode') },
                                 ...options.payments.map((p: any) => ({ value: p.name, label: p.name }))
                               ]}
-                              placeholder="Select Payment Mode"
+                              placeholder={__('Select Payment Mode')}
                             />
                             {isMissingAccount && (
                               <div className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
                                 <span className="inline-block w-1.5 h-1.5 bg-red-600 dark:bg-red-400 rounded-full"></span>
-                                <span>No default account configured for this mode in {profileForm.company}</span>
+                                <span>{__('No default account configured for this mode in')} {profileForm.company}</span>
                               </div>
                             )}
                           </div>
@@ -948,7 +949,7 @@ export const PosProfilePage: React.FC = () => {
                                 setProfileForm({ ...profileForm, payments: newRows });
                               }}
                             />
-                            <span>Default</span>
+                            <span>{__('Default')}</span>
                           </div>
                           {isEditMode && (
                             <button type="button" className="text-muted-foreground hover:text-red-500 p-1" onClick={() => {
@@ -970,7 +971,7 @@ export const PosProfilePage: React.FC = () => {
                       onClick={() => setProfileForm({ ...profileForm, payments: [...(profileForm.payments || []), { mode_of_payment: '', default: 0 }] })}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Add Payment</span>
+                      <span>{__('Add Payment')}</span>
                     </Button>
                   )}
                 </div>
@@ -989,10 +990,10 @@ export const PosProfilePage: React.FC = () => {
       <div className="flex flex-col md:flex-row items-center justify-end gap-4 pb-3 border-b border-border -mx-6 px-6 -mt-6 pt-6">
         <Button
           onClick={openAddDrawer}
-          className="bg-primary hover:bg-primary/90 text-white font-semibold flex items-center space-x-1.5 shadow-xs"
+          className="bg-primary hover:bg-primary/90 text-white font-semibold flex items-center gap-1.5 shadow-xs"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Profile</span>
+          <span>{__('Add Profile')}</span>
         </Button>
       </div>
 
@@ -1006,16 +1007,16 @@ export const PosProfilePage: React.FC = () => {
           <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
             <Layers className="w-6 h-6 text-primary" />
           </div>
-          <h3 className="text-lg font-semibold text-foreground mb-1">No POS Profiles Configured</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-1">{__('No POS Profiles Configured')}</h3>
           <p className="text-muted-foreground mb-6 max-w-sm">
-            Create a POS Profile to manage billing terminals and cashier permissions.
+            {__('Create a POS Profile to manage billing terminals and cashier permissions.')}
           </p>
           <Button
             onClick={openAddDrawer}
-            className="bg-primary hover:bg-primary/90 text-white font-semibold flex items-center space-x-1.5 shadow-xs"
+            className="bg-primary hover:bg-primary/90 text-white font-semibold flex items-center gap-1.5 shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Profile</span>
+            <span>{__('Add Profile')}</span>
           </Button>
         </Card>
       ) : (
@@ -1024,21 +1025,21 @@ export const PosProfilePage: React.FC = () => {
             <>
               {(() => {
                 const columns: DataTableColumn<PosProfileRecord>[] = [
-                  { key: 'name', header: 'POS Profile', render: (row) => <span className="font-semibold">{row.name}</span> },
-                  { key: 'warehouse', header: 'Warehouse', render: (row) => row.warehouse || row.company || '-' },
-                  { key: 'selling_price_list', header: 'Price List', render: (row) => row.selling_price_list || 'Standard Selling' },
+                  { key: 'name', header: __('POS Profile'), render: (row) => <span className="font-semibold">{row.name}</span> },
+                  { key: 'warehouse', header: __('Warehouse'), render: (row) => row.warehouse || row.company || '-' },
+                  { key: 'selling_price_list', header: __('Price List'), render: (row) => row.selling_price_list || 'Standard Selling' },
                   {
                     key: 'disabled',
-                    header: 'Activation Status',
+                    header: __('Activation Status'),
                     render: (row) => (
                       <Badge variant={!row.disabled ? "success" : "outline"} size="sm">
-                        {!row.disabled ? 'Active' : 'Inactive'}
+                        {!row.disabled ? __('Active') : __('Inactive')}
                       </Badge>
                     )
                   },
                   {
                     key: 'actions',
-                    header: 'Actions',
+                    header: __('Actions'),
                     align: 'right',
                     render: (row) => (
                       <div className="flex items-center justify-end gap-1">
@@ -1046,7 +1047,7 @@ export const PosProfilePage: React.FC = () => {
                           variant="ghost"
                           onClick={() => handleProfileView(row)}
                           className="text-muted-foreground hover:text-primary p-1.5 h-8 w-8"
-                          title="View Profile"
+                          title={__('View Profile')}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
@@ -1054,7 +1055,7 @@ export const PosProfilePage: React.FC = () => {
                           variant="ghost"
                           onClick={() => handleProfileEdit(row)}
                           className="text-muted-foreground hover:text-primary p-1.5 h-8 w-8"
-                          title="Edit Profile"
+                          title={__('Edit Profile')}
                         >
                           <Edit2 className="w-4 h-4" />
                         </Button>
@@ -1073,39 +1074,39 @@ export const PosProfilePage: React.FC = () => {
       <SideDrawer
         isOpen={isAddDrawerOpen}
         onClose={() => setIsAddDrawerOpen(false)}
-        title="Add POS Profile"
+        title={__('Add POS Profile')}
       >
         <form onSubmit={handleAddProfile} className="space-y-6 text-sm">
           <div>
-            <label className="block font-semibold text-foreground mb-1.5">Profile Name <span className="text-red-500">*</span></label>
+            <label className="block font-semibold text-foreground mb-1.5">{__('Profile Name')} <span className="text-red-500">*</span></label>
             <Input required value={addForm.name} onChange={e => setAddForm({ ...addForm, name: e.target.value })} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">Company <span className="text-red-500">*</span></label>
+              <label className="block font-semibold text-foreground mb-1.5">{__('Company')} <span className="text-red-500">*</span></label>
               <SearchableSelect
                 id="add_profile_company"
                 value={addForm.company}
                 onChange={(_, val) => setAddForm({ ...addForm, company: val })}
                 options={[
-                  { value: '', label: 'Select Company' },
+                  { value: '', label: __('Select Company') },
                   ...options.companies.map((c: any) => ({ value: c.name, label: c.name }))
                 ]}
-                placeholder="Select Company"
+                placeholder={__('Select Company')}
               />
             </div>
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">Branch</label>
+              <label className="block font-semibold text-foreground mb-1.5">{__('Branch')}</label>
               {activeBranchId === 'all' ? (
                 <SearchableSelect
                   id="add_profile_branch"
                   value={addForm.branch}
                   onChange={(_, val) => setAddForm({ ...addForm, branch: val })}
                   options={[
-                    { value: '', label: 'Select Branch' },
+                    { value: '', label: __('Select Branch') },
                     ...branches.map((b: any) => ({ value: b.name, label: b.name }))
                   ]}
-                  placeholder="Select Branch"
+                  placeholder={__('Select Branch')}
                 />
               ) : (
                 <Input value={addForm.branch} disabled />
@@ -1114,37 +1115,37 @@ export const PosProfilePage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">Warehouse</label>
+              <label className="block font-semibold text-foreground mb-1.5">{__('Warehouse')}</label>
               <SearchableSelect
                 id="add_profile_warehouse"
                 value={addForm.warehouse}
                 onChange={(_, val) => setAddForm({ ...addForm, warehouse: val })}
                 options={[
-                  { value: '', label: 'Select Warehouse' },
+                  { value: '', label: __('Select Warehouse') },
                   ...options.warehouses.map((w: any) => ({ value: w.name, label: w.name }))
                 ]}
-                placeholder="Select Warehouse"
+                placeholder={__('Select Warehouse')}
               />
             </div>
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">KOT Naming Series</label>
-              <Input value={addForm.custom_kot_naming_series} onChange={e => setAddForm({ ...addForm, custom_kot_naming_series: e.target.value })} placeholder="e.g. KOT-.YYYY.-" />
+              <label className="block font-semibold text-foreground mb-1.5">{__('KOT Naming Series')}</label>
+              <Input value={addForm.custom_kot_naming_series} onChange={e => setAddForm({ ...addForm, custom_kot_naming_series: e.target.value })} placeholder={__('e.g. KOT-.YYYY.-')} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">Price List</label>
-              <Input value={addForm.selling_price_list} onChange={e => setAddForm({ ...addForm, selling_price_list: e.target.value })} placeholder="Standard Selling" />
+              <label className="block font-semibold text-foreground mb-1.5">{__('Price List')}</label>
+              <Input value={addForm.selling_price_list} onChange={e => setAddForm({ ...addForm, selling_price_list: e.target.value })} placeholder={__('Standard Selling')} />
             </div>
             <div>
-              <label className="block font-semibold text-foreground mb-1.5">Print Format</label>
-              <Input value={addForm.print_format} onChange={e => setAddForm({ ...addForm, print_format: e.target.value })} placeholder="Default" />
+              <label className="block font-semibold text-foreground mb-1.5">{__('Print Format')}</label>
+              <Input value={addForm.print_format} onChange={e => setAddForm({ ...addForm, print_format: e.target.value })} placeholder={__('Default')} />
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="font-semibold text-foreground">Applicable For Users</label>
+              <label className="font-semibold text-foreground">{__('Applicable For Users')}</label>
             </div>
             <div className="space-y-2 mb-3">
               {addForm.applicable_for_users.map((row, idx) => (
@@ -1159,10 +1160,10 @@ export const PosProfilePage: React.FC = () => {
                         setAddForm({ ...addForm, applicable_for_users: newRows });
                       }}
                       options={[
-                        { value: '', label: 'Select User' },
+                        { value: '', label: __('Select User') },
                         ...options.users.map((u: any) => ({ value: u.name, label: u.full_name || u.name }))
                       ]}
-                      placeholder="Select User"
+                      placeholder={__('Select User')}
                     />
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1174,7 +1175,7 @@ export const PosProfilePage: React.FC = () => {
                         setAddForm({ ...addForm, applicable_for_users: newRows });
                       }}
                     />
-                    <span>Default</span>
+                    <span>{__('Default')}</span>
                   </div>
                   <button type="button" className="text-muted-foreground hover:text-red-500 p-1" onClick={() => {
                     const newRows = addForm.applicable_for_users.filter((_, i) => i !== idx);
@@ -1190,13 +1191,13 @@ export const PosProfilePage: React.FC = () => {
               onClick={() => setAddForm({ ...addForm, applicable_for_users: [...addForm.applicable_for_users, { user: '', default: 0 }] })}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add User</span>
+              <span>{__('Add User')}</span>
             </Button>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="font-semibold text-foreground">Mode of Payment</label>
+              <label className="font-semibold text-foreground">{__('Mode of Payment')}</label>
             </div>
             <div className="space-y-2 mb-3">
               {addForm.payments.map((row, idx) => (
@@ -1211,10 +1212,10 @@ export const PosProfilePage: React.FC = () => {
                         setAddForm({ ...addForm, payments: newRows });
                       }}
                       options={[
-                        { value: '', label: 'Select Payment Mode' },
+                        { value: '', label: __('Select Payment Mode') },
                         ...options.payments.map((p: any) => ({ value: p.name, label: p.name }))
                       ]}
-                      placeholder="Select Payment Mode"
+                      placeholder={__('Select Payment Mode')}
                     />
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1226,7 +1227,7 @@ export const PosProfilePage: React.FC = () => {
                         setAddForm({ ...addForm, payments: newRows });
                       }}
                     />
-                    <span>Default</span>
+                    <span>{__('Default')}</span>
                   </div>
                   <button type="button" className="text-muted-foreground hover:text-red-500 p-1" onClick={() => {
                     const newRows = addForm.payments.filter((_, i) => i !== idx);
@@ -1242,14 +1243,14 @@ export const PosProfilePage: React.FC = () => {
               onClick={() => setAddForm({ ...addForm, payments: [...addForm.payments, { mode_of_payment: '', default: 0 }] })}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Payment</span>
+              <span>{__('Add Payment')}</span>
             </Button>
           </div>
 
           <div className="pt-6 flex justify-end gap-3 border-t border-border">
-            <Button type="button" variant="outline" onClick={() => setIsAddDrawerOpen(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => setIsAddDrawerOpen(false)}>{__('Cancel')}</Button>
             <Button type="submit" disabled={saving} className="bg-primary hover:bg-primary/90 text-white">
-              Save
+              {__('Save')}
             </Button>
           </div>
         </form>

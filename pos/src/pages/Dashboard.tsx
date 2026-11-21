@@ -16,7 +16,7 @@ import { formatCurrency } from '@ury/core';
 import { getOpenPosOpeningEntries, type OpenPosOpeningEntry } from '../lib/pos-closing-api';
 import InsightFeed from '../components/dashboard/InsightFeed';
 import AskBar from '../components/chat/AskBar';
-import { getActiveLanguage, t } from '../i18n';
+import { getActiveLanguage, t, tData, tUser, tNotification, ltrFraction } from '../i18n';
 
 // Helper function to format relative time
 function getRelativeTime(creationDate: string): string {
@@ -27,19 +27,19 @@ function getRelativeTime(creationDate: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hr ago`;
-  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  if (diffMins < 1) return t('dashboard.relative_just_now');
+  if (diffMins < 60) return t('dashboard.relative_min_ago', { n: diffMins });
+  if (diffHours < 24) return t('dashboard.relative_hr_ago', { n: diffHours });
+  return t('dashboard.relative_days_ago', { n: diffDays });
 }
 
 // Helper to format ETA minutes into readable time
 function formatETA(minutes: number | null): string {
-  if (minutes === null) return 'Holds';
-  if (minutes <= 90) return `~${minutes} min`;
+  if (minutes === null) return t('dashboard.eta_holds');
+  if (minutes <= 90) return `~${t('dashboard.minutes_short', { n: minutes })}`;
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  return `~${hours} hr ${mins > 0 ? `${mins} min` : ''}`.trim();
+  return `~${t('dashboard.hours_short', { n: hours })} ${mins > 0 ? t('dashboard.minutes_short', { n: mins }) : ''}`.trim();
 }
 
 // Helper to format date for open sessions display
@@ -51,10 +51,8 @@ function formatOpenSessionDate(dateString: string): string {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffMins = Math.floor((diffMs % 3600000) / 60000);
 
-    if (diffHours === 0) return t('dashboard.minutes_ago', { count: diffMins });
-    if (diffHours < 24) {
-      return t('dashboard.hours_minutes_ago', { hours: diffHours, minutes: diffMins });
-    }
+    if (diffHours === 0) return t('dashboard.session_ago_mins', { m: diffMins });
+    if (diffHours < 24) return t('dashboard.session_ago_hours', { h: diffHours, m: diffMins });
     return date.toLocaleDateString(getActiveLanguage(), { month: 'short', day: 'numeric' });
   } catch {
     return dateString;
@@ -70,15 +68,23 @@ function formatOpenSessionDate(dateString: string): string {
  */
 type StageKey = 'open' | 'seated' | 'fired' | 'served' | 'over';
 
-const STAGES: { key: StageKey; label: string; bar: string; chip: string; dot: string }[] = [
-  { key: 'open', label: 'Open', bar: 'bg-gray-300', chip: 'bg-gray-100 text-gray-700 ring-gray-200', dot: 'bg-gray-400' },
-  { key: 'seated', label: 'Seated', bar: 'bg-primary-200', chip: 'bg-primary-50 text-primary-700 ring-primary-200', dot: 'bg-primary-200' },
-  { key: 'fired', label: 'Fired', bar: 'bg-primary-400', chip: 'bg-primary-50 text-primary-800 ring-primary-300', dot: 'bg-primary-400' },
-  { key: 'served', label: 'Served', bar: 'bg-primary-700', chip: 'bg-primary-100 text-primary-900 ring-primary-400', dot: 'bg-primary-700' },
-  { key: 'over', label: 'Over time', bar: 'bg-destructive', chip: 'bg-red-50 text-red-700 ring-red-200', dot: 'bg-destructive' },
+interface StageConfig {
+  key: StageKey;
+  labelKey: string;
+  bar: string;
+  chip: string;
+  dot: string;
+}
+
+const STAGES: StageConfig[] = [
+  { key: 'open', labelKey: 'dashboard.stage_open', bar: 'bg-gray-300', chip: 'bg-gray-100 text-gray-700 ring-gray-200', dot: 'bg-gray-400' },
+  { key: 'seated', labelKey: 'dashboard.stage_seated', bar: 'bg-primary-200', chip: 'bg-primary-50 text-primary-700 ring-primary-200', dot: 'bg-primary-200' },
+  { key: 'fired', labelKey: 'dashboard.stage_fired', bar: 'bg-primary-400', chip: 'bg-primary-50 text-primary-800 ring-primary-300', dot: 'bg-primary-400' },
+  { key: 'served', labelKey: 'dashboard.stage_served', bar: 'bg-primary-700', chip: 'bg-primary-100 text-primary-900 ring-primary-400', dot: 'bg-primary-700' },
+  { key: 'over', labelKey: 'dashboard.stage_over', bar: 'bg-destructive', chip: 'bg-red-50 text-red-700 ring-red-200', dot: 'bg-destructive' },
 ];
 
-const STAGE_BY_KEY = Object.fromEntries(STAGES.map((s) => [s.key, s])) as Record<StageKey, (typeof STAGES)[number]>;
+const STAGE_BY_KEY = Object.fromEntries(STAGES.map((s) => [s.key, s])) as Record<StageKey, StageConfig>;
 
 const ATTENTION_TRANSLATION_KEYS: Record<string, string> = {
   pending_payment: 'dashboard.attention.pending_payment',
@@ -190,24 +196,24 @@ export default function Dashboard() {
         const statsData = statsRes.message;
         setStats([
           {
-            label: "Today's Sales",
+            label: t('dashboard.stat_todays_sales'),
             value: formatCurrency(statsData.todays_sales)
           },
           {
-            label: 'Orders Today',
+            label: t('dashboard.stat_orders_today'),
             value: String(statsData.orders_today)
           },
           {
-            label: 'Avg. Order Value',
+            label: t('dashboard.stat_avg_order_value'),
             value: formatCurrency(statsData.avg_order_value)
           },
           {
-            label: 'Active Tables',
-            value: `${statsData.active_tables} / ${statsData.total_tables}`
+            label: t('dashboard.stat_active_tables'),
+            value: ltrFraction(statsData.active_tables, statsData.total_tables)
           }
         ]);
       } catch (err) {
-        setStatsError('Failed to load stats');
+        setStatsError(t('dashboard.error_load_stats'));
         console.error('Error fetching stats:', err);
       } finally {
         setStatsLoading(false);
@@ -223,7 +229,7 @@ export default function Dashboard() {
         const serviceData = Array.isArray(serviceRes.message) ? serviceRes.message : [];
         setServiceLine(serviceData);
       } catch (err) {
-        setServiceLineError('Failed to load service line');
+        setServiceLineError(t('dashboard.service_line_error'));
         console.error('Error fetching service line:', err);
       } finally {
         setServiceLineLoading(false);
@@ -243,7 +249,7 @@ export default function Dashboard() {
         });
         setBaseline(baselineRes.message);
       } catch (err) {
-        setMetricsError('Failed to load metrics');
+        setMetricsError(t('dashboard.baseline_error'));
         console.error('Error fetching metrics:', err);
       } finally {
         setMetricsLoading(false);
@@ -259,7 +265,7 @@ export default function Dashboard() {
         const floorData = Array.isArray(floorRes.message) ? floorRes.message : [];
         setFloorLoad(floorData);
       } catch (err) {
-        setFloorLoadError('Failed to load floor load');
+        setFloorLoadError(t('dashboard.floor_load_error'));
         console.error('Error fetching floor load:', err);
       } finally {
         setFloorLoadLoading(false);
@@ -275,7 +281,7 @@ export default function Dashboard() {
         const runningData = Array.isArray(runningRes.message) ? runningRes.message : [];
         setRunningLow(runningData);
       } catch (err) {
-        setRunningLowError('Failed to load running low items');
+        setRunningLowError(t('dashboard.running_low_error'));
         console.error('Error fetching running low:', err);
       } finally {
         setRunningLowLoading(false);
@@ -299,7 +305,7 @@ export default function Dashboard() {
           setNeedsAttention([]);
         }
       } catch (err) {
-        setNeedsAttentionError('Failed to load needs attention');
+        setNeedsAttentionError(t('dashboard.error_load_attention'));
         console.error('Error fetching needs attention:', err);
       } finally {
         setNeedsAttentionLoading(false);
@@ -327,7 +333,7 @@ export default function Dashboard() {
         }));
         setNotifications(processedNotifications);
       } catch (err) {
-        setNotificationsError('Failed to load notifications');
+        setNotificationsError(t('dashboard.notifications_error'));
         console.error('Error fetching notifications:', err);
       } finally {
         setNotificationsLoading(false);
@@ -348,7 +354,7 @@ export default function Dashboard() {
         const data = await getOpenPosOpeningEntries(posProfile.name);
         setOpenEntries(data);
       } catch (err) {
-        setOpenEntriesError('Failed to load open sessions');
+        setOpenEntriesError(t('dashboard.open_sessions_error'));
         console.error('Error fetching open entries:', err);
       } finally {
         setOpenEntriesLoading(false);
@@ -374,9 +380,9 @@ export default function Dashboard() {
         {/* Page header — states where you are and that the numbers are live. */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">{t('header.shift_overview')}</h1>
+            <h1 className="text-xl font-semibold text-gray-900">{t('dashboard.title')}</h1>
             <p className="mt-0.5 text-sm text-gray-500">
-              {posProfile?.branch ? `${posProfile.branch} · ` : ''}{t('dashboard.live_floor_status')}
+              {posProfile?.branch ? `${tData(posProfile.branch)} · ` : ''}{t('dashboard.live_status')}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -402,15 +408,15 @@ export default function Dashboard() {
             for consistent styling and severity indicators. */}
         {needsAttentionError ? (
           <div className="rounded-lg border border-border bg-white p-4 text-sm text-destructive">
-            Failed to load attention items
+            {t('dashboard.error_load_attention')}
           </div>
         ) : needsAttentionLoading ? null : (
-          <AttentionFeed title="Needs Attention" items={needsAttention} />
+          <AttentionFeed title={t('dashboard.needs_attention')} items={needsAttention} />
         )}
 
         {/* Stat row */}
         {statsError ? (
-          <div className="text-sm text-destructive">Failed to load stats</div>
+          <div className="text-sm text-destructive">{t('dashboard.error_load_stats_inline')}</div>
         ) : statsLoading ? (
           <div className="h-12 animate-pulse rounded-lg border border-border bg-white" />
         ) : (
@@ -422,25 +428,25 @@ export default function Dashboard() {
         {/* Service Line — the operational heart of the screen. */}
         <Panel
           icon={Activity}
-          title="Service Line"
+          title={t('dashboard.service_line_title')}
           tone="primary"
           meta={
             overCount > 0 ? (
               <Badge size="tag" variant="tagDestructive" className="gap-[5px]">
                 <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-current" />
-                <span className="font-mono tabular-nums">{overCount}</span> over time
+                <span className="font-mono tabular-nums">{overCount}</span> {t('dashboard.service_line_over_badge')}
               </Badge>
             ) : serviceLine.length > 0 ? (
-              t('dashboard.tables_tracked', { count: serviceLine.length })
+              t('dashboard.service_line_tables_tracked', { count: serviceLine.length })
             ) : undefined
           }
         >
           {serviceLineError ? (
-            <PanelState kind="error">Failed to load service line</PanelState>
+            <PanelState kind="error">{t('dashboard.service_line_error')}</PanelState>
           ) : serviceLineLoading ? (
-            <PanelState kind="loading">Loading…</PanelState>
+            <PanelState kind="loading">{t('dashboard.service_line_loading')}</PanelState>
           ) : serviceLine.length === 0 ? (
-            <PanelState kind="empty">No tables currently seated.</PanelState>
+            <PanelState kind="empty">{t('dashboard.service_line_empty')}</PanelState>
           ) : (
             <div>
               {/*
@@ -462,7 +468,7 @@ export default function Dashboard() {
                       className={stage.count === 0 ? 'opacity-45' : ''}
                     >
                       <span className={cn('h-[5px] w-[5px] shrink-0 rounded-full', stage.dot)} />
-                      {stage.label}
+                      {t(stage.labelKey)}
                       <span className="font-mono tabular-nums font-semibold">{stage.count}</span>
                     </Badge>
                   );
@@ -479,8 +485,8 @@ export default function Dashboard() {
                   return (
                     <div
                       key={idx}
-                      className="flex w-11 shrink-0 flex-col items-center"
-                      title={`${table.table} · ${stage.label}${table.minutes !== null ? ` · ${table.minutes} min` : ''}`}
+                      className="flex w-14 shrink-0 flex-col items-center"
+                      title={`${tData(table.table)} · ${t(stage.labelKey)}${table.minutes !== null ? ` · ${t('dashboard.minutes_short', { n: table.minutes })}` : ''}`}
                     >
                       <span
                         className={cn(
@@ -502,11 +508,11 @@ export default function Dashboard() {
                       </div>
                       <span
                         className={cn(
-                          'mt-1.5 w-full truncate rounded px-1 py-0.5 text-center text-[11px] font-medium',
+                          'mt-1.5 w-full break-words rounded px-1 py-0.5 text-center text-[11px] font-medium leading-tight',
                           isOver ? 'bg-red-50 text-red-700' : 'text-gray-600'
                         )}
                       >
-                        {table.table}
+                        {tData(table.table)}
                       </span>
                     </div>
                   );
@@ -515,7 +521,9 @@ export default function Dashboard() {
 
               {overCount > 0 && (
                 <p className="mt-3 text-sm font-medium text-destructive">
-                  {overCount} table{overCount !== 1 ? 's' : ''} running over time — check on them before the next fire.
+                  {overCount === 1
+                    ? t('dashboard.service_line_overdue_warning', { count: overCount })
+                    : t('dashboard.service_line_overdue_warning_plural', { count: overCount })}
                 </p>
               )}
             </div>
@@ -528,19 +536,19 @@ export default function Dashboard() {
           <div className="space-y-5">
             <Panel
               icon={Gauge}
-              title="Tonight vs Baseline"
-              meta={baseline?.sample_days > 0 ? `${baseline.sample_days}-day median` : undefined}
+              title={t('dashboard.baseline_title')}
+              meta={baseline?.sample_days > 0 ? t('dashboard.baseline_sample_days', { days: baseline.sample_days }) : undefined}
             >
               {metricsError ? (
-                <PanelState kind="error">Failed to load metrics</PanelState>
+                <PanelState kind="error">{t('dashboard.baseline_error')}</PanelState>
               ) : metricsLoading ? (
-                <PanelState kind="loading">Loading…</PanelState>
+                <PanelState kind="loading">{t('dashboard.baseline_loading')}</PanelState>
               ) : !shiftMetrics || !baseline ? (
-                <PanelState kind="empty">No data available</PanelState>
+                <PanelState kind="empty">{t('dashboard.baseline_empty')}</PanelState>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <MetricTile
-                    label="Sales"
+                    label={t('dashboard.metric_sales')}
                     value={formatCurrency(shiftMetrics.sales)}
                     delta={
                       baseline.sample_days > 0 && baseline.median_sales
@@ -553,7 +561,7 @@ export default function Dashboard() {
                     }
                   />
                   <MetricTile
-                    label="Covers"
+                    label={t('dashboard.metric_covers')}
                     value={String(shiftMetrics.covers)}
                     delta={
                       baseline.sample_days > 0
@@ -565,22 +573,22 @@ export default function Dashboard() {
                         : undefined
                     }
                   />
-                  <MetricTile label="Avg per Cover" value={formatCurrency(shiftMetrics.avg_per_cover)} />
+                  <MetricTile label={t('dashboard.metric_avg_per_cover')} value={formatCurrency(shiftMetrics.avg_per_cover)} />
                   <MetricTile
-                    label="Avg Ticket Time"
-                    value={shiftMetrics.avg_ticket_minutes !== null ? `${shiftMetrics.avg_ticket_minutes} min` : '—'}
+                    label={t('dashboard.metric_avg_ticket')}
+                    value={shiftMetrics.avg_ticket_minutes !== null ? t('dashboard.minutes_short', { n: shiftMetrics.avg_ticket_minutes }) : '—'}
                   />
                 </div>
               )}
             </Panel>
 
-            <Panel icon={PackageSearch} title="Running Low">
+            <Panel icon={PackageSearch} title={t('dashboard.running_low_title')}>
               {runningLowError ? (
-                <PanelState kind="error">Failed to load</PanelState>
+                <PanelState kind="error">{t('dashboard.running_low_error')}</PanelState>
               ) : runningLowLoading ? (
-                <PanelState kind="loading">Loading…</PanelState>
+                <PanelState kind="loading">{t('dashboard.running_low_loading')}</PanelState>
               ) : runningLow.length === 0 ? (
-                <PanelState kind="empty">No items selling fast enough to forecast yet.</PanelState>
+                <PanelState kind="empty">{t('dashboard.running_low_empty')}</PanelState>
               ) : (
                 <div className="space-y-3.5">
                   {runningLow.map((item, idx) => {
@@ -605,7 +613,7 @@ export default function Dashboard() {
                           />
                         </div>
                         {item.data_quality_issue && (
-                          <p className="mt-1 text-xs text-gray-500">(stock data needs review)</p>
+                          <p className="mt-1 text-xs text-gray-500">({t('dashboard.running_low_stock_review')})</p>
                         )}
                       </div>
                     );
@@ -617,19 +625,19 @@ export default function Dashboard() {
 
           {/* Right rail */}
           <div className="space-y-5">
-            <Panel icon={Users} title="Floor Load">
+            <Panel icon={Users} title={t('dashboard.floor_load_title')}>
               {floorLoadError ? (
-                <PanelState kind="error">Failed to load</PanelState>
+                <PanelState kind="error">{t('dashboard.floor_load_error')}</PanelState>
               ) : floorLoadLoading ? (
-                <PanelState kind="loading">Loading…</PanelState>
+                <PanelState kind="loading">{t('dashboard.floor_load_loading')}</PanelState>
               ) : floorLoad.length === 0 ? (
-                <PanelState kind="empty">No tables currently assigned.</PanelState>
+                <PanelState kind="empty">{t('dashboard.floor_load_empty')}</PanelState>
               ) : (
                 <div className="space-y-3">
                   {floorLoad.map((waiter, idx) => (
                     <div key={idx}>
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-gray-700">{waiter.waiter}</span>
+                        <span className="truncate text-sm font-medium text-gray-700">{tUser(waiter.waiter)}</span>
                         <span className="shrink-0 text-xs font-semibold tabular-nums text-gray-500">
                           {waiter.table_count}
                         </span>
@@ -648,19 +656,15 @@ export default function Dashboard() {
 
             <Panel
               icon={LogOut}
-              title={t('dashboard.open_sessions')}
-              meta={
-                openEntries.length > 0
-                  ? t('dashboard.open_sessions_count', { count: openEntries.length })
-                  : undefined
-              }
+              title={t('dashboard.open_sessions_title')}
+              meta={openEntries.length > 0 ? t('dashboard.open_sessions_count', { count: openEntries.length }) : undefined}
             >
               {openEntriesError ? (
-                <PanelState kind="error">{t('dashboard.failed_load_open_sessions')}</PanelState>
+                <PanelState kind="error">{t('dashboard.open_sessions_error')}</PanelState>
               ) : openEntriesLoading ? (
-                <PanelState kind="loading">Loading…</PanelState>
+                <PanelState kind="loading">{t('dashboard.open_sessions_loading')}</PanelState>
               ) : openEntries.length === 0 ? (
-                <PanelState kind="empty">{t('dashboard.no_sessions_left_open')}</PanelState>
+                <PanelState kind="empty">{t('dashboard.open_sessions_empty')}</PanelState>
               ) : (
                 <div>
                   <div className="space-y-1.5">
@@ -669,7 +673,7 @@ export default function Dashboard() {
                         key={entry.name}
                         className="flex items-center justify-between gap-2 rounded-md bg-gray-50 px-2.5 py-2"
                       >
-                        <span className="truncate text-xs font-medium text-gray-900">{entry.user}</span>
+                        <span className="truncate text-xs font-medium text-gray-900">{tUser(entry.user)}</span>
                         <span className="shrink-0 text-xs text-gray-500">
                           {formatOpenSessionDate(entry.period_start_date)}
                         </span>
@@ -677,15 +681,13 @@ export default function Dashboard() {
                     ))}
                   </div>
                   {openEntries.length > 5 && (
-                    <p className="py-2 text-center text-xs text-gray-500">
-                      {t('dashboard.more', { count: openEntries.length - 5 })}
-                    </p>
+                    <p className="py-2 text-center text-xs text-gray-500">{t('dashboard.open_sessions_more', { count: openEntries.length - 5 })}</p>
                   )}
                   <a
                     href="/pos/open-entries"
                     className="mt-3 flex items-center justify-center gap-1 border-t border-border pt-2.5 text-xs font-semibold text-primary hover:text-primary-600"
                   >
-                    {t('dashboard.view_all')}
+                    {t('dashboard.open_sessions_view_all')}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </a>
                 </div>
@@ -694,7 +696,7 @@ export default function Dashboard() {
 
             <Panel
               icon={Sparkles}
-              title={t('dashboard.shift_brief')}
+              title={t('dashboard.shift_brief_title')}
               meta={
                 <span className="rounded bg-primary-50 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-primary ring-1 ring-primary-200">
                   HUF
@@ -704,18 +706,18 @@ export default function Dashboard() {
               <p className="text-sm text-gray-500">{t('dashboard.shift_brief_placeholder')}</p>
             </Panel>
 
-            <Panel icon={Bell} title="Recent Notifications">
+            <Panel icon={Bell} title={t('dashboard.notifications_title')}>
               {notificationsError ? (
-                <PanelState kind="error">Failed to load</PanelState>
+                <PanelState kind="error">{t('dashboard.notifications_error')}</PanelState>
               ) : notificationsLoading ? (
-                <PanelState kind="loading">Loading…</PanelState>
+                <PanelState kind="loading">{t('dashboard.notifications_loading')}</PanelState>
               ) : notifications.length === 0 ? (
-                <PanelState kind="empty">No recent notifications.</PanelState>
+                <PanelState kind="empty">{t('dashboard.notifications_empty')}</PanelState>
               ) : (
                 <div className="divide-y divide-gray-100">
                   {notifications.map((notification) => (
                     <div key={notification.id} className="flex items-start justify-between gap-2 py-2 first:pt-0 last:pb-0">
-                      <p className="text-xs leading-relaxed text-gray-700">{notification.message}</p>
+                      <p className="text-xs leading-relaxed text-gray-700">{tNotification(notification.message)}</p>
                       <span className="shrink-0 whitespace-nowrap text-xs text-gray-400">
                         {notification.timestamp}
                       </span>
@@ -754,7 +756,7 @@ function MetricTile({
           >
             {delta.up ? '▲' : '▼'} {delta.text}
           </span>
-          <span className="text-gray-400">vs {delta.against}</span>
+          <span className="text-gray-400">{t('dashboard.metric_vs')} {delta.against}</span>
         </p>
       ) : null}
     </div>

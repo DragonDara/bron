@@ -1,13 +1,13 @@
 import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES } from './config';
 
-/** Minimal Frappe boot shape used for language detection on desk/portal pages. */
-type FrappeBootWindow = Window & {
-  frappe?: {
-    boot?: {
-      lang?: string;
-    };
-  };
-};
+/** Locale files use base codes; Frappe boot may send regional variants. */
+function matchSupportedLanguage(code: string | undefined | null): string | null {
+  if (!code) return null;
+  if (SUPPORTED_LANGUAGES[code]) return code;
+  const base = code.split(/[-_]/)[0];
+  if (base && SUPPORTED_LANGUAGES[base]) return base;
+  return null;
+}
 
 /**
  * Resolves the active language using the following priority:

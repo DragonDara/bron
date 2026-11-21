@@ -19,12 +19,12 @@ vi.mock("../store/pos-store", () => ({
 // Mock i18n
 vi.mock("../i18n", () => ({
   t: (key: string) => ({
-    "dashboard.open_sessions": "Open Sessions",
-    "dashboard.failed_load_open_sessions": "Failed to load open sessions",
-    "dashboard.no_open_pos_sessions": "No open POS sessions",
-    "dashboard.user": "User",
-    "dashboard.period_start_date": "Period Start Date",
-    "dashboard.pos_profile": "POS Profile",
+    "open_entries.title": "Open Sessions",
+    "open_entries.error_load": "Failed to load open sessions",
+    "open_entries.no_sessions": "No open POS sessions",
+    "open_entries.col_user": "User",
+    "open_entries.col_period_start": "Period Start Date",
+    "open_entries.col_pos_profile": "POS Profile",
   })[key] ?? key,
   getActiveLanguage: () => "en",
 }));

@@ -14,6 +14,16 @@ _REDIRECT_PREFIXES = ("", "app", "desk", "apps", "setup-wizard")
 _WIZARD_HOME_PAGE = "setup-wizard"
 _DESK_HOME_PAGE = "Workspaces"
 
+# Role-based landing page routing applied after setup is complete.
+# A user qualifies for a restricted landing only when they hold the
+# matching role but do NOT hold any of the elevated roles that grant
+# full Desk access.
+_ELEVATED_ROLES = {"URY Manager", "URY Admin", "System Manager", "Administrator"}
+_CASHIER_ROLES = {"URY Cashier"}
+_CAPTAIN_ROLES = {"URY Captain"}
+_CASHIER_HOME = "/pos"
+_CAPTAIN_HOME = "/ury/serve"
+
 # Boots arrive in parallel, and every one of them sees the same stale pair.
 # Without a claim they all attempt the same write and deadlock each other on
 # tabDefaultValue's SELECT ... FOR UPDATE. The claim expires so that a repair
@@ -86,22 +96,49 @@ def website_path_resolver(path):
     (which ignores frappe.local.response type=redirect on page GETs).
     """
     from frappe.website.path_resolver import resolve_path
+    import werkzeug.routing.exceptions
 
     if _should_redirect_to_ury_setup(path):
         frappe.local.flags.redirect_location = _setup_wizard_target()
         raise frappe.Redirect(302)
 
-    return resolve_path(path)
+    try:
+        return resolve_path(path)
+    except werkzeug.routing.exceptions.RequestRedirect as e:
+        frappe.flags.redirect_location = e.new_url
+        raise frappe.Redirect(e.code)
+
+
+def _role_based_home_page():
+    """Return a restricted landing URL for cashier / captain-only users.
+
+    Returns ``None`` when the user holds an elevated role (URY Manager,
+    URY Admin, System Manager) or when no restricted rule applies, so
+    that callers can fall through to the standard Desk home page.
+    """
+    if frappe.session.user in ("Guest", "Administrator"):
+        return None
+    roles = set(frappe.get_roles())
+    if roles & _ELEVATED_ROLES:
+        return None
+    if roles & _CASHIER_ROLES:
+        return _CASHIER_HOME
+    if roles & _CAPTAIN_ROLES:
+        return _CAPTAIN_HOME
+    return None
 
 
 def on_session_creation(login_manager=None):
-    """Hint login toward the wizard. LoginManager.set_user_info may overwrite
-    home_page afterwards; website_path_resolver is the real intercept.
+    """Hint login toward the wizard on incomplete sites.
+
+    Role-restricted landings (/pos, /ury/serve) are handled by the JS
+    bootinfo redirect in setup_redirect.js, not here, because setting
+    home_page to a full URL path causes the Desk SPA to attempt a
+    Frappe Page DocType lookup which raises DoesNotExistError.
     """
-    if is_ury_setup_complete():
-        return
-    frappe.local.response["message"] = "Logged In"
-    frappe.local.response["home_page"] = _setup_wizard_target()
+    if not is_ury_setup_complete():
+        frappe.local.response["message"] = "Logged In"
+        frappe.local.response["home_page"] = _setup_wizard_target()
 
 
 def _has_stale_wizard_home_page():
@@ -190,3 +227,9 @@ def extend_bootinfo(bootinfo):
     # hand Desk the pair it loops on. A cached boot carries the stale value too.
     if (repaired or bootinfo.get("home_page") == _WIZARD_HOME_PAGE) and _is_setup_complete_safe():
         bootinfo["home_page"] = _DESK_HOME_PAGE
+
+    # Role-restricted landing for cashier / captain-only users.
+    if complete:
+        restricted = _role_based_home_page()
+        if restricted:
+            bootinfo["ury_role_home_page"] = restricted

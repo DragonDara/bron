@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronDown, Check } from 'lucide-react';
 import { Badge } from '@ury/ui';
+import { __ } from '../../i18n';
 
 export interface MultiSelectOption {
   value: string;
@@ -125,7 +126,7 @@ export function MultiSelect({
         width: `${portalStyle.width}px`,
         maxHeight: portalStyle.maxHeight ? `${portalStyle.maxHeight}px` : undefined,
       }}
-      className="z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl overflow-y-auto p-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20"
+      className="z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl overflow-y-auto p-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
     >
       {options.length > 5 && (
         <div className="p-1 mb-1 border-b border-gray-100">
@@ -133,7 +134,7 @@ export function MultiSelect({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Filter roles..."
+            placeholder={__('Filter roles...')}
             className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:border-primary"
             onClick={(e) => e.stopPropagation()}
           />
@@ -158,7 +159,7 @@ export function MultiSelect({
           );
         })
       ) : (
-        <div className="px-3 py-2 text-sm text-gray-400">No matching options</div>
+        <div className="px-3 py-2 text-sm text-gray-400">{__('No matching options')}</div>
       )}
     </div>
   ) : null;
@@ -173,7 +174,7 @@ export function MultiSelect({
           isOpen ? 'border-primary ring-2 ring-primary/20' : 'border-gray-300 hover:border-gray-400'
         } ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
       >
-        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+        <div className="flex flex-wrap items-start content-start gap-1.5 flex-1 min-w-0 max-h-[85px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {selectedOptions.length > 0 ? (
             selectedOptions.map((opt) => (
               <Badge

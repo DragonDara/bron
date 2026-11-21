@@ -1,5 +1,7 @@
+import { __ } from '../../i18n';
 import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useState } from 'react';
+import { formatFixedAmount } from '@ury/core';
 import { Page, Section, Panel, Spinner, Input, Button, DatePicker, KpiStrip, DataTable, StatusDot, numericCellClass, type DataTableColumn, type KpiItemProps } from '@ury/ui';
 import { call, getLoggedUser, getUserRoles } from '@ury/core';
 import { useBranchContext } from '../../context/BranchContext';
@@ -19,7 +21,7 @@ import { describeProfitabilityReason } from '../../lib/profitabilityReasons';
  *    and visual language as DepartmentProfitabilityPage.tsx)
  *  - a real close-day blocker checklist from `getCloseDayChecklist`,
  *    assembled from existing data (URY Table occupancy, Work Order status,
- *    POS Closing Entry, URY Issue Wastage sign-off) -- see
+ *    POS Closing Entry, URY Wastage sign-off) -- see
  *    ury/ury/report_api/day_close.py for the exact sourcing.
  *  - one HONEST "coming soon" section: carrying today's variance into
  *    tomorrow's sales plan. That is a real product feature requiring
@@ -68,23 +70,23 @@ const varianceTone = (variance: number): 'success' | 'warning' | 'danger' | 'neu
 };
 
 const planVsActualColumns: DataTableColumn<PlanVsActualRow>[] = [
-  { key: 'department', header: 'Department' },
-  { key: 'item_or_component', header: 'Item' },
+  { key: 'department', header: __('Department') },
+  { key: 'item_or_component', header: __('Item') },
   {
     key: 'planned_qty',
-    header: 'Planned Qty',
+    header: __('Planned Qty'),
     align: 'right',
     render: (row) => <span className={numericCellClass}>{row.planned_qty}</span>,
   },
   {
     key: 'actual_qty',
-    header: 'Actual Qty',
+    header: __('Actual Qty'),
     align: 'right',
     render: (row) => <span className={numericCellClass}>{row.actual_qty}</span>,
   },
   {
     key: 'qty_variance',
-    header: 'Variance',
+    header: __('Variance'),
     align: 'right',
     render: (row) => (
       <span className="inline-flex items-center justify-end gap-2">
@@ -169,7 +171,7 @@ export const DayClosePage: React.FC = () => {
       const hasRows = (planVsActualResult.rows?.length || 0) > 0;
       setState(hasRows || pnlResult?.exists ? 'populated' : 'empty');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load day-close data';
+      const message = err instanceof Error ? err.message : __('Failed to load day-close data');
       setErrorMessage(message);
       setState('error');
     }
@@ -180,7 +182,7 @@ export const DayClosePage: React.FC = () => {
       setChecklist(checklistResult);
     } catch (err) {
       setChecklist(null);
-      setChecklistError(err instanceof Error ? err.message : 'Failed to load close-day checklist');
+      setChecklistError(err instanceof Error ? err.message : __('Failed to load close-day checklist'));
     }
   };
 
@@ -208,7 +210,7 @@ export const DayClosePage: React.FC = () => {
     return (
       <Page>
         <Panel pad data-testid="close-day-denied">
-          <p className="text-sm text-muted-foreground">You do not have access to day-close reporting.</p>
+          <p className="text-sm text-muted-foreground">{__('You do not have access to day-close reporting.')}</p>
         </Panel>
       </Page>
     );
@@ -219,7 +221,7 @@ export const DayClosePage: React.FC = () => {
       <Page data-testid="day-close-page">
         <Section>
           <Panel pad data-testid="close-day-select-branch">
-            <p className="text-sm text-muted-foreground">Select a specific branch above to view its day-close status.</p>
+            <p className="text-sm text-muted-foreground">{__('Select a specific branch above to view its day-close status.')}</p>
           </Panel>
         </Section>
       </Page>
@@ -234,9 +236,9 @@ export const DayClosePage: React.FC = () => {
       }))
     : [
         {
-          label: 'Daily P&L',
+          label: __('Daily P&L'),
           value: '—',
-          hint: pnlSummary ? 'No P&L posted for this date yet' : undefined,
+          hint: pnlSummary ? __('No P&L posted for this date yet') : undefined,
         },
       ];
 
@@ -250,20 +252,20 @@ export const DayClosePage: React.FC = () => {
     <Page data-testid="day-close-page">
       <div className="flex flex-wrap gap-3 items-end">
         <div>
-          <label className="text-xs text-muted-foreground">Company</label>
-          <Input value={company} disabled placeholder="Derived from branch" data-testid="close-day-company" />
+          <label className="text-xs text-muted-foreground">{__('Company')}</label>
+          <Input value={company} disabled placeholder={__('Derived from branch')} data-testid="close-day-company" />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground">Service Date</label>
+          <label className="text-xs text-muted-foreground">{__('Service Date')}</label>
           <DatePicker
             id="close-day-service-date"
-            aria-label="Service date"
+            aria-label={__('Service date')}
             value={serviceDate}
             onChange={(_id, next) => setServiceDate(next)}
             className="w-[180px]"
           />
         </div>
-        <Button onClick={load} variant="chrome">Refresh</Button>
+        <Button onClick={load} variant="chrome">{__('Refresh')}</Button>
       </div>
 
       {state === 'error' && (
@@ -282,8 +284,7 @@ export const DayClosePage: React.FC = () => {
         <Section>
           <Panel pad data-testid="close-day-empty">
             <p className="text-sm text-muted-foreground">
-              No plan-vs-actual data for this company/branch/service date. Check that an approved Sales Plan exists for
-              this scope.
+              {__('No plan-vs-actual data for this company/branch/service date. Check that an approved Sales Plan exists for this scope.')}
             </p>
           </Panel>
         </Section>
@@ -291,26 +292,26 @@ export const DayClosePage: React.FC = () => {
 
       {state === 'populated' && planVsActual && (
         <Section data-testid="close-day-plan-vs-actual">
-          <h3 className="mb-2 text-sm font-semibold">Plan vs Actual</h3>
+          <h3 className="mb-2 text-sm font-semibold">{__('Plan vs Actual')}</h3>
           {planVsActual.reason && (
             <p className="mb-2 text-xs text-warning" data-testid="close-day-plan-vs-actual-reason">
               {describeProfitabilityReason(planVsActual.reason)}
             </p>
           )}
-          <DataTable columns={planVsActualColumns} rows={planVsActual.rows} emptyMessage="No plan-vs-actual rows for this scope." />
+          <DataTable columns={planVsActualColumns} rows={planVsActual.rows} emptyMessage={__('No plan-vs-actual rows for this scope.')} />
         </Section>
       )}
 
       <Section>
         <Panel pad data-testid="close-day-checklist">
-          <h3 className="text-sm font-semibold mb-2">Close Day Checklist</h3>
+          <h3 className="text-sm font-semibold mb-2">{__('Close Day Checklist')}</h3>
           {checklistError && (
             <p className="text-sm text-destructive" data-testid="close-day-checklist-error">
               {checklistError}
             </p>
           )}
           {!checklistError && !checklist && (
-            <p className="text-sm text-muted-foreground">Loading checklist…</p>
+            <p className="text-sm text-muted-foreground">{__('Loading checklist…')}</p>
           )}
           {!checklistError && checklist && (
             <ul className="flex flex-col gap-2">
@@ -342,14 +343,13 @@ export const DayClosePage: React.FC = () => {
         <Panel pad data-testid="close-day-apply-to-plan-stub">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h3 className="text-sm font-semibold mb-1">Apply to Next Plan</h3>
+              <h3 className="text-sm font-semibold mb-1">{__('Apply to Next Plan')}</h3>
               <p className="text-sm text-muted-foreground">
-                Coming soon. Carrying today's variance into tomorrow's sales plan will let you apply today's results
-                directly when planning tomorrow's service.
+                {__("Coming soon. Carrying today's variance into tomorrow's sales plan will let you apply today's results directly when planning tomorrow's service.")}
               </p>
             </div>
-            <Button disabled title="Coming soon" data-testid="close-day-apply-to-plan-button">
-              Apply to Next Plan
+            <Button disabled title={__('Coming soon')} data-testid="close-day-apply-to-plan-button">
+              {__('Apply to Next Plan')}
             </Button>
           </div>
         </Panel>

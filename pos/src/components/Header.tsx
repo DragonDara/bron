@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getActiveLanguage, t } from '../i18n';
+import { getActiveLanguage, t, tUser } from '../i18n';
 import { SUPPORTED_LANGUAGES } from '../i18n/config';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -13,11 +13,13 @@ import {
   Languages,
 } from 'lucide-react';
 import { Button, Input } from '@ury/ui';
+import { isCashierOnly } from '../lib/roles';
 import { useRootStore } from '../store/root-store';
 import { usePOSStore } from '../store/pos-store';
 import type { RootState } from '../store/root-store';
-import { logout, withReturnContext } from '@ury/core';
+import { logout, withReturnContext, DESK_RETURN_STORAGE_KEY, isPrintStatusDisabled } from '@ury/core';
 import { showToast } from '@ury/ui';
+import { PrinterStatusButton } from './PrinterWatch';
 
 const Header = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -26,7 +28,8 @@ const Header = () => {
   const pinLoginAvailable = useRootStore((state: RootState) => state.pinLoginAvailable);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
-  const { searchQuery, setSearchQuery, setShowVoluntaryClosing, activeOrders } = usePOSStore();
+  const { searchQuery, setSearchQuery, setShowVoluntaryClosing, activeOrders, posProfile } = usePOSStore();
+  const printStatusDisabled = isPrintStatusDisabled(posProfile);
   const { orderSearchQuery, setOrderSearchQuery } = useRootStore();
   const [orderSearchInput, setOrderSearchInput] = useState(orderSearchQuery);
   const activeLanguage = getActiveLanguage();
@@ -39,6 +42,10 @@ const Header = () => {
     searchPlaceholder = t('header.search_placeholder_orders');
     searchValue = orderSearchInput;
     searchOnChange = (e) => setOrderSearchInput(e.target.value);
+  } else if (location.pathname === '/reservations') {
+    searchPlaceholder = t('header.search_placeholder_reservations');
+    searchValue = searchQuery;
+    searchOnChange = (e) => setSearchQuery(e.target.value);
   } else if (location.pathname === '/register') {
     searchPlaceholder = t('header.search_placeholder_menu');
     searchValue = searchQuery;
@@ -144,13 +151,29 @@ const Header = () => {
       <div className="flex items-center justify-between h-12 px-4 md:px-6">
         {/* Logo */}
         <div className="flex items-center">
-        <Link to="/dashboard" className="flex items-center gap-3">
+          <a
+            href="/desk"
+            onClick={() => {
+              try {
+                sessionStorage.setItem(
+                  DESK_RETURN_STORAGE_KEY,
+                  JSON.stringify({
+                    path: window.location.pathname + window.location.search,
+                    label: 'POS',
+                  })
+                );
+              } catch (e) {
+                /* ignore */
+              }
+            }}
+            className="flex items-center gap-3"
+          >
             <img
               src="/assets/ury/pos/ury_pos.png"
               alt="URY POS"
               className="h-8 w-auto"
             />
-          </Link>
+          </a>
         </div>
 
         {/* Search Bar */}
@@ -174,6 +197,8 @@ const Header = () => {
 
         {/* Right side actions */}
         <div className="flex items-center gap-4">
+          {/* Printer status (fail-closed when the watch app is absent) */}
+          {!printStatusDisabled && <PrinterStatusButton />}
           {/* User menu */}
           <div className="relative" ref={userMenuRef}>
             <Button
@@ -184,7 +209,7 @@ const Header = () => {
               <div className="w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
                 <User className="w-3.5 h-3.5 text-white" />
               </div>
-              <span className="text-sm font-medium">{user?.full_name || 'User'}</span>
+              <span className="text-sm font-medium">{tUser(user?.full_name) || t('header.user_fallback')}</span>
               <ChevronDown className="w-4 h-4" />
             </Button>
 
@@ -192,7 +217,7 @@ const Header = () => {
             {showUserMenu && (
               <div className="absolute end-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-border z-50">
                 <div className="p-4 border-b border-border">
-                  <p className="text-sm font-medium text-gray-900">{user?.full_name || 'User'}</p>
+                  <p className="text-sm font-medium text-gray-900">{tUser(user?.full_name) || t('header.user_fallback')}</p>
                   <p className="text-sm text-gray-500">{user?.name || ''}</p>
                 </div>
                 <div className="p-3 border-b border-gray-200">
@@ -240,7 +265,7 @@ const Header = () => {
                     onClick={() => window.location.href = '/ury/dashboard'}
                   >
                     <Monitor className="w-4 h-4 me-3" />
-                    Switch to Dashboard
+                    {t('header.switch_to_dashboard')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -249,7 +274,20 @@ const Header = () => {
                        a floating "Back to POS" chip (return_to_app.js) --
                        otherwise a cashier who steps into the desk for a
                        not-yet-migrated feature has no obvious way back. */
-                    onClick={() => window.location.href = withReturnContext('/app')}
+                    onClick={() => {
+                      try {
+                        sessionStorage.setItem(DESK_RETURN_STORAGE_KEY, JSON.stringify({
+                          path: window.location.pathname + window.location.search,
+                          label: 'POS',
+                        }));
+                      } catch (e) {
+                        /* ignore */
+                      }
+                      // Cashier-only users cannot open the URY workspace; send them to their dashboard.
+                      window.location.href = withReturnContext(
+                        isCashierOnly(user?.roles) ? '/desk/pos-operations' : '/desk/ury'
+                      );
+                    }}
                   >
                     <Monitor className="w-4 h-4 me-3" />
                     {t('header.switch_to_desk')}

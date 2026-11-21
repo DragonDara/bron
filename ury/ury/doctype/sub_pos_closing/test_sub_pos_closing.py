@@ -4,7 +4,51 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch, MagicMock
-from ury.ury.doctype.sub_pos_closing.sub_pos_closing import get_pos_invoices
+from ury.ury.doctype.sub_pos_closing.sub_pos_closing import (
+	assert_no_open_invoices,
+	get_pos_invoices,
+)
+
+MODULE = "ury.ury.doctype.sub_pos_closing.sub_pos_closing"
+
+
+class TestAssertNoOpenInvoices(FrappeTestCase):
+	"""Gate that blocks Sub / POS Closing while draft/unbilled invoices remain."""
+
+	def test_blocks_when_open_invoices_exist(self):
+		open_rows = [
+			frappe._dict(name="POSINV-OPEN-1", restaurant_table="T1", invoice_printed=0),
+			frappe._dict(name="POSINV-OPEN-2", restaurant_table="", invoice_printed=1),
+		]
+		with patch(f"{MODULE}.frappe.get_all", return_value=open_rows) as get_all:
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				assert_no_open_invoices("Profile-1", user="cashier@ury.test")
+
+		_, kwargs = get_all.call_args
+		self.assertEqual(kwargs["filters"]["pos_profile"], "Profile-1")
+		self.assertEqual(kwargs["filters"]["docstatus"], 0)
+		self.assertEqual(kwargs["filters"]["cashier"], "cashier@ury.test")
+		self.assertIn("POSINV-OPEN-1", str(ctx.exception))
+		self.assertIn("POSINV-OPEN-2", str(ctx.exception))
+
+	def test_allows_close_when_no_open_invoices(self):
+		with patch(f"{MODULE}.frappe.get_all", return_value=[]) as get_all:
+			assert_no_open_invoices("Profile-1", user="cashier@ury.test")
+
+		_, kwargs = get_all.call_args
+		self.assertEqual(kwargs["filters"]["docstatus"], 0)
+		self.assertEqual(kwargs["filters"]["cashier"], "cashier@ury.test")
+
+	def test_main_closing_scopes_to_profile_only(self):
+		"""Main POS Closing Entry checks the whole profile (no cashier filter)."""
+		with patch(f"{MODULE}.frappe.get_all", return_value=[]) as get_all:
+			assert_no_open_invoices("Profile-1")
+
+		_, kwargs = get_all.call_args
+		self.assertEqual(kwargs["filters"]["pos_profile"], "Profile-1")
+		self.assertEqual(kwargs["filters"]["docstatus"], 0)
+		self.assertNotIn("cashier", kwargs["filters"])
+
 
 class TestSubPOSClosingSEC09(FrappeTestCase):
 
