@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const callGet = vi.fn()
 
-vi.mock('@ury/core', () => ({
+vi.mock('@ury/core', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@ury/core')>()),
   call: { get: (...args: unknown[]) => callGet(...args), post: vi.fn() },
   storage: { setItem: vi.fn(), getItem: vi.fn() },
   siteCurrencyCode: () => null,
