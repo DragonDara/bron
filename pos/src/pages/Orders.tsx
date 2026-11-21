@@ -36,7 +36,7 @@ import {
 } from '../lib/order-api';
 import { parseFrappeError } from '@ury/core';
 import { formatMergedTableLabel } from '../lib/table-utils';
-import { t } from '../i18n';
+import { t, getActiveLanguage } from '../i18n';
 import {
   getPrintWarningState,
   formatFrappeDatetime,

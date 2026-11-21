@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import { getManagementLocale } from '../../i18n/language';
 import React, { useEffect, useState } from 'react';
 import { formatFixedAmount } from '@ury/core';

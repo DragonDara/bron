@@ -1,3 +1,4 @@
+import { __, uiLocale } from '../../i18n';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useBranchContext } from '../../context/BranchContext';
 import {

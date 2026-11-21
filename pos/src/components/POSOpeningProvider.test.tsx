@@ -297,4 +297,21 @@ describe("POSOpeningProvider", () => {
     });
     expect(screen.queryByText("Orders Content")).not.toBeInTheDocument();
   });
+
+  it("does not show opening screen on captain route /order when no existing entry", async () => {
+    mockPathname = "/order";
+    mockCheckPOSOpening.mockResolvedValueOnce({ message: 1 });
+    mockValidatePOSClose.mockResolvedValueOnce({ message: "Success" });
+
+    render(
+      <POSOpeningProvider>
+        <div>Order Content</div>
+      </POSOpeningProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Order Content")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("opening-screen")).not.toBeInTheDocument();
+  });
 });

@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Page,

@@ -43,7 +43,7 @@ export const orderTypeLabel = (value: string): string =>
 
 export const DINE_IN="Dine In"
 export const TAKE_AWAY="Take Away"
-export const DEFAULT_ORDER_TYPE="Take Away"
+export const DEFAULT_ORDER_TYPE=DINE_IN
 export const DEFAULT_PAYMENT_MODE="Cash"
 
 export type OrderStatusType = "Draft" | "Unbilled" | "Recently Paid" | "Paid" | "Consolidated" | "Return";

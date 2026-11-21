@@ -112,6 +112,7 @@ vi.mock("../lib/table-utils", () => ({
 
 // Mock i18n with proper number formatting support
 vi.mock("../i18n", () => ({
+  getActiveLanguage: () => "en",
   t: (key: string, opts?: any) => {
     if (key === 'orders.pagination.page' && opts?.number) {
       return `Page ${opts.number}`;
@@ -227,7 +228,7 @@ describe("Orders Page", () => {
       mockPosStore.openOrderForEdit.mockResolvedValue(true);
       render(<Orders />);
 
-      fireEvent.click(screen.getByLabelText("Edit order"));
+      fireEvent.click(screen.getByLabelText("orders.edit_order"));
 
       await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/register"));
       expect(mockPosStore.openOrderForEdit).toHaveBeenCalledWith("INV-0038", "Table 5");
@@ -237,7 +238,7 @@ describe("Orders Page", () => {
       mockPosStore.openOrderForEdit.mockResolvedValue(false);
       render(<Orders />);
 
-      fireEvent.click(screen.getByLabelText("Edit order"));
+      fireEvent.click(screen.getByLabelText("orders.edit_order"));
 
       await waitFor(() => expect(showToast.error).toHaveBeenCalledWith("errors.failed_edit_order"));
       expect(navigateMock).not.toHaveBeenCalled();

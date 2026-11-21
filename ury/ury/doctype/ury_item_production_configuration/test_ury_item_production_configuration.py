@@ -1,6 +1,7 @@
 # Copyright (c) 2023, Tridz Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
+import unittest
 from collections.abc import Hashable
 from unittest.mock import patch
 

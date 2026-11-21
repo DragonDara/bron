@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getActiveLanguage, t } from '../i18n';
+import { getActiveLanguage, t, tUser } from '../i18n';
 import { SUPPORTED_LANGUAGES } from '../i18n/config';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -28,7 +28,8 @@ const Header = () => {
   const pinLoginAvailable = useRootStore((state: RootState) => state.pinLoginAvailable);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
-  const { searchQuery, setSearchQuery, setShowVoluntaryClosing, activeOrders } = usePOSStore();
+  const { searchQuery, setSearchQuery, setShowVoluntaryClosing, activeOrders, posProfile } = usePOSStore();
+  const printStatusDisabled = isPrintStatusDisabled(posProfile);
   const { orderSearchQuery, setOrderSearchQuery } = useRootStore();
   const [orderSearchInput, setOrderSearchInput] = useState(orderSearchQuery);
   const activeLanguage = getActiveLanguage();

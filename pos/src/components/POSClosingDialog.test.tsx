@@ -541,7 +541,8 @@ describe("POSClosingDialog shift report printing", () => {
     await closeShift();
 
     expect(await screen.findByText("pos_closing.report_print_failed_title")).toBeInTheDocument();
-    expect(screen.getByText("QZ Tray is not running")).toBeInTheDocument();
+    // The detail is shown after the generic "report_print_failed" prefix.
+    expect(screen.getByText(/QZ Tray is not running/)).toBeInTheDocument();
     expect(screen.queryByText("pos_closing.submit_failed")).not.toBeInTheDocument();
     expect(onClosingSubmitted).not.toHaveBeenCalled();
     expect(submitPosClosingEntryMock).toHaveBeenCalledTimes(1);

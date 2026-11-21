@@ -5,6 +5,7 @@ import OrderTypeSelect from "./OrderTypeSelect";
 
 const mockUsePOSStore = vi.fn();
 const mockUseRootStore = vi.fn();
+const mockIsRestricted = vi.fn(() => false);
 
 vi.mock("../store/pos-store", () => ({
   usePOSStore: () => mockUsePOSStore(),
@@ -19,11 +20,13 @@ vi.mock("../lib/table-utils", () => ({
 }));
 
 vi.mock("@ury/core", () => ({
-  isUserRestrictedFromTableOrders: (user: any, profile: any) => false,
+  isUserRestrictedFromTableOrders: () => mockIsRestricted(),
 }));
 
 vi.mock("./TableSelectionDialog", () => ({
-  default: ({ onClose }: any) => <div data-testid="table-dialog">Table Dialog</div>,
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="table-dialog"><button onClick={onClose}>Close picker</button></div>
+  ),
 }));
 
 vi.mock("../i18n", () => ({
@@ -32,6 +35,7 @@ vi.mock("../i18n", () => ({
 
 describe("OrderTypeSelect", () => {
   beforeEach(() => {
+    mockIsRestricted.mockReturnValue(false);
     mockUsePOSStore.mockReturnValue({
       selectedOrderType: "Takeaway",
       setSelectedOrderType: vi.fn(),
@@ -44,6 +48,62 @@ describe("OrderTypeSelect", () => {
     mockUseRootStore.mockReturnValue({
       user: { name: "user1" },
     });
+  });
+
+  it("prompts for a table on entry and after starting the next dine-in order", async () => {
+    const state = {
+      ...mockUsePOSStore(),
+      selectedOrderType: "Dine In",
+      posProfile: { branch: "Main" },
+    };
+    mockUsePOSStore.mockReturnValue(state);
+    const { rerender } = render(<OrderTypeSelect />);
+    expect(screen.getByTestId("table-dialog")).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close picker" }));
+    rerender(<OrderTypeSelect />);
+    expect(screen.queryByTestId("table-dialog")).not.toBeInTheDocument();
+    expect(state.setSelectedOrderType).not.toHaveBeenCalled();
+
+    mockUsePOSStore.mockReturnValue({ ...state, selectedTable: "Table 1" });
+    rerender(<OrderTypeSelect />);
+    expect(screen.queryByTestId("table-dialog")).not.toBeInTheDocument();
+
+    mockUsePOSStore.mockReturnValue(state);
+    rerender(<OrderTypeSelect />);
+    expect(screen.getByTestId("table-dialog")).toBeInTheDocument();
+  });
+
+  it.each([
+    { selectedTable: "Table 1" },
+    { isUpdatingOrder: true },
+    { posProfile: null },
+    { selectedOrderType: "Take Away" },
+  ])("does not prompt when the order is ineligible: %j", (overrides) => {
+    mockUsePOSStore.mockReturnValue({
+      ...mockUsePOSStore(),
+      selectedOrderType: "Dine In",
+      posProfile: { branch: "Main" },
+      ...overrides,
+    });
+    render(<OrderTypeSelect />);
+    expect(screen.queryByTestId("table-dialog")).not.toBeInTheDocument();
+  });
+
+  it("waits until interaction is enabled and respects table-order restrictions", () => {
+    mockUsePOSStore.mockReturnValue({
+      ...mockUsePOSStore(),
+      selectedOrderType: "Dine In",
+      posProfile: { branch: "Main" },
+    });
+    const { rerender } = render(<OrderTypeSelect disabled />);
+    expect(screen.queryByTestId("table-dialog")).not.toBeInTheDocument();
+    mockIsRestricted.mockReturnValue(true);
+    rerender(<OrderTypeSelect />);
+    expect(screen.queryByTestId("table-dialog")).not.toBeInTheDocument();
+    mockIsRestricted.mockReturnValue(false);
+    rerender(<OrderTypeSelect />);
+    expect(screen.getByTestId("table-dialog")).toBeInTheDocument();
   });
 
   it("renders order type buttons", () => {

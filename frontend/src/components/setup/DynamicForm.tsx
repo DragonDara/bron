@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import React, { forwardRef, useImperativeHandle, useMemo, useEffect } from 'react';
 import { defineCatalog } from '@json-render/core';
 import { schema } from '@json-render/react/schema';

@@ -2753,7 +2753,8 @@ def _validate_additional_discount(additional_discount, pos_profile):
 
 # Method for URY POS
 @frappe.whitelist()
-def make_invoice(customer, payments, cashier, pos_profile,owner, additionalDiscount=None, table=None, invoice=None, credit_account=None):
+def make_invoice(customer, payments, cashier, pos_profile,owner, additionalDiscount=None, table=None, invoice=None, credit_account=None, submit_invoice=1):
+    submit_invoice = frappe.utils.cint(submit_invoice) if submit_invoice is not None else 1
     order_type =  invoice_name = frappe.get_value("POS Invoice",invoice , "order_type")
     invoice = get_order_invoice(table, invoice, order_type, "Payments")
     if not invoice.name or invoice.pos_profile != pos_profile or (customer and invoice.customer != customer):
