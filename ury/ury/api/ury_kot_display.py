@@ -111,6 +111,27 @@ def confirm_cancel_kot(name):
 def get_site_name():
     return {"site_name": frappe.local.site}
 
+def _attach_item_states(kot_jsons):
+    """Stamp each kot_item dict with its URY KOT Item Execution ``state``.
+
+    One batched query for all KOTs (no N+1). Items with no execution row are
+    implicitly QUEUED. Plain fields only, so it is safe on v15 and v16.
+    """
+    kot_names = [k.get("name") for k in kot_jsons if k.get("name")]
+    state_by_item = {}
+    if kot_names:
+        rows = frappe.get_all(
+            "URY KOT Item Execution",
+            filters={"kot": ["in", kot_names]},
+            fields=["kot_item", "state"],
+        )
+        state_by_item = {r.kot_item: r.state for r in rows}
+    for kot in kot_jsons:
+        for item in kot.get("kot_items") or []:
+            item["state"] = state_by_item.get(item.get("name")) or "QUEUED"
+    return kot_jsons
+
+
 def build_dashboard_summary(kot_list):
     summary = {}
 
@@ -148,15 +169,18 @@ def _get_cancel_confirmed_original_kots(branch):
     link field, so it has to be matched with LIKE and split in Python rather
     than joined in the query.
     """
+    filters = {
+        "type": ["in", ["Cancelled", "Partially cancelled"]],
+        "verified": 1,
+        "docstatus": 1,
+    }
+    if branch:
+        filters["branch"] = branch
+
     cancel_rows = frappe.get_all(
         "URY KOT",
         fields=["original_kot"],
-        filters={
-            "branch": branch,
-            "type": ["in", ["Cancelled", "Partially cancelled"]],
-            "verified": 1,
-            "docstatus": 1,
-        },
+        filters=filters,
     )
     original_names = set()
     for row in cancel_rows:
@@ -166,40 +190,109 @@ def _get_cancel_confirmed_original_kots(branch):
     return original_names
 
 
+KOT_DISPLAY_WINDOW_HOURS = 3
+KOT_DISPLAY_TYPES = [
+    "New Order",
+    "Order Modified",
+    "Duplicate",
+    "Cancelled",
+    "Partially cancelled",
+]
+
+
+def _kot_display_filters(order_status, branch=None):
+    """Single definition of which KOTs the Mosaic KDS shows.
+
+    Shared by the per-unit view (kot_list / served_kot_list) and the overview
+    counts (production_unit_counts) so both always use the same time window.
+    """
+    filters = {
+        "order_status": order_status,
+        "type": ["in", KOT_DISPLAY_TYPES],
+        "docstatus": 1,
+        "verified": 0,
+        "creation": (
+            ">=",
+            frappe.utils.add_to_date(
+                frappe.utils.now(), hours=-KOT_DISPLAY_WINDOW_HOURS
+            ),
+        ),
+    }
+    if branch:
+        filters["branch"] = branch
+    return filters
+
+
+@frappe.whitelist()
+def production_unit_counts(units=None):
+    """Active/served/total KOT counts per production unit, windowed like the unit view."""
+    if isinstance(units, str):
+        units = json.loads(units)
+    branch = None
+    user = frappe.session.user
+    if not (user == "Administrator" or "URY Admin" in frappe.get_roles(user)):
+        branch = getBranch()
+    cancelled = _get_cancel_confirmed_original_kots(branch)
+
+    def count(order_status):
+        rows = frappe.get_list(
+            "URY KOT",
+            fields=["name", "production"],
+            filters=_kot_display_filters(order_status, branch),
+            limit_page_length=0,
+        )
+        out = {}
+        for r in rows:
+            if r.name in cancelled or not r.production:
+                continue
+            out[r.production] = out.get(r.production, 0) + 1
+        return out
+
+    active, served = count("Ready For Prepare"), count("Served")
+    names = units or sorted(set(active) | set(served))
+    return {
+        u: {
+            "active_orders": active.get(u, 0),
+            "served_orders": served.get(u, 0),
+            "total_orders": active.get(u, 0) + served.get(u, 0),
+        }
+        for u in names
+    }
+
+
 @frappe.whitelist()
 def kot_list():
     today = frappe.utils.now()
-    branch = getBranch()
+    user = frappe.session.user
+    roles = frappe.get_roles(user)
+    is_admin = user == "Administrator" or "URY Admin" in roles
+
+    if is_admin:
+        branch = None
+    else:
+        branch = getBranch()
+
+    pos_profile_filters = {}
+    if branch:
+        pos_profile_filters["branch"] = branch
+
     kot_alert_time = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_kot_warning_time"
+        "POS Profile", pos_profile_filters, "custom_kot_warning_time"
     )
     daily_order_number = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_reset_order_number_daily"
+        "POS Profile", pos_profile_filters, "custom_reset_order_number_daily"
     )
     three_hours_ago = frappe.utils.add_to_date(today, hours=-3)
     audio_alert = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_kot_alert"
+        "POS Profile", pos_profile_filters, "custom_kot_alert"
     )
+
+    filters = _kot_display_filters("Ready For Prepare", branch)
+
     kotList = frappe.get_list(
         "URY KOT",
         fields=["name"],
-        filters={
-            "order_status": "Ready For Prepare",
-            "branch": branch,
-            "type": [
-                "in",
-                [
-                    "New Order",
-                    "Order Modified",
-                    "Duplicate",
-                    "Cancelled",
-                    "Partially cancelled",
-                ],
-            ],
-            "docstatus": 1,
-            "verified": 0,
-            "creation": (">=", three_hours_ago),
-        },
+        filters=filters,
         order_by="creation desc",
     )
     cancelled_original_kots = _get_cancel_confirmed_original_kots(branch)
@@ -227,6 +320,7 @@ def kot_list():
 
         kotjson = json.loads(frappe.as_json(kotdoc))
         KOT.append(kotjson)
+    _attach_item_states(KOT)
     dashboard = build_dashboard_summary(KOT)
     return {
         "KOT": KOT,
@@ -240,37 +334,36 @@ def kot_list():
 @frappe.whitelist()
 def served_kot_list():
     today = frappe.utils.now()
-    branch = getBranch()
+    user = frappe.session.user
+    roles = frappe.get_roles(user)
+    is_admin = user == "Administrator" or "URY Admin" in roles
+
+    if is_admin:
+        branch = None
+    else:
+        branch = getBranch()
+
+    pos_profile_filters = {}
+    if branch:
+        pos_profile_filters["branch"] = branch
+
     kot_alert_time = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_kot_warning_time"
+        "POS Profile", pos_profile_filters, "custom_kot_warning_time"
     )
     daily_order_number = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_reset_order_number_daily"
+        "POS Profile", pos_profile_filters, "custom_reset_order_number_daily"
     )
     three_hours_ago = frappe.utils.add_to_date(today, hours=-3)
     audio_alert = frappe.db.get_value(
-        "POS Profile", {"branch": branch}, "custom_kot_alert"
+        "POS Profile", pos_profile_filters, "custom_kot_alert"
     )
+
+    filters = _kot_display_filters("Served", branch)
+
     kotList = frappe.get_list(
         "URY KOT",
         fields=["name"],
-        filters={
-            "order_status": "Served",
-            "branch": branch,
-            "type": [
-                "in",
-                [
-                    "New Order",
-                    "Order Modified",
-                    "Duplicate",
-                    "Cancelled",
-                    "Partially cancelled",
-                ],
-            ],
-            "docstatus": 1,
-            "verified": 0,
-            "creation": (">=", three_hours_ago),
-        },
+        filters=filters,
         order_by="creation desc",
     )
     production_filters = {}
@@ -299,6 +392,7 @@ def served_kot_list():
         print(invoice,".....................invoice")
         kotjson = json.loads(frappe.as_json(kotdoc))
         KOT.append(kotjson)
+    _attach_item_states(KOT)
     return {
         "KOT": KOT,
         "Branch": branch,

@@ -34,25 +34,93 @@ interface ChecklistRowState {
   goal?: string | null;
 }
 
+/** Generic frappe-js-sdk fallbacks that carry no actionable detail. */
+const GENERIC_ERROR_MESSAGES = new Set([
+  'there was an error while updating the document.',
+  'there was an error while creating the document.',
+  'request failed with status code 500',
+  'there was an error.',
+  'internal server error',
+]);
+
+function readErrorProp(source: unknown, key: string): unknown {
+  if (source && typeof source === 'object' && key in source) {
+    return (source as Record<string, unknown>)[key];
+  }
+  return undefined;
+}
+
+/** Returns the substring after the first colon, or null when there is none. */
+function detailAfterColon(text: string): string | null {
+  const idx = text.indexOf(':');
+  if (idx === -1) return null;
+  return text.slice(idx + 1).trim() || null;
+}
+
+function combineWithFallback(fallback: string, detail: string): string {
+  if (fallback && !detail.includes(fallback)) return `${fallback}: ${detail}`;
+  return detail;
+}
+
 /**
- * Extracts a human-readable message from a Frappe API error, unwrapping
- * `_server_messages` when present. Falls back to the error's own message,
- * then to a generic string. Mirrors the helper in POSClosingDialog.tsx.
+ * Extracts a human-readable message from a Frappe API error. Frappe answers
+ * errors in several shapes: `_server_messages` (frappe.throw), `exception` /
+ * `exc` (uncaught exceptions returned on HTTP 500 without _server_messages),
+ * or a plain `message`. Each shape is checked on the error object directly
+ * and on its axios `response.data` envelope. When a specific detail is found
+ * it is prefixed with the fallback, unless the detail already contains it.
  */
 function extractServerErrorMessage(error: unknown, fallback: string): string {
-  if (error && typeof error === 'object' && '_server_messages' in error) {
-    const raw = (error as { _server_messages?: unknown })._server_messages;
-    if (typeof raw === 'string') {
-      try {
-        const messages = JSON.parse(raw);
-        const first = JSON.parse(messages[0]);
-        if (first?.message) return messageToPlainText(first.message as string);
-      } catch {
-        // fall through to other extraction strategies
+  const response = readErrorProp(error, 'response');
+  const responseData =
+    response && typeof response === 'object' ? readErrorProp(response, 'data') : undefined;
+  const sources = [error, responseData];
+
+  for (const source of sources) {
+    const raw = readErrorProp(source, '_server_messages');
+    if (typeof raw !== 'string') continue;
+    try {
+      const messages = JSON.parse(raw);
+      const first = JSON.parse(messages[0]);
+      if (first?.message) {
+        return combineWithFallback(fallback, messageToPlainText(first.message as string));
       }
+    } catch {
+      // fall through to other extraction strategies
     }
   }
-  if (error instanceof Error && error.message) return error.message;
+
+  for (const source of sources) {
+    const raw = readErrorProp(source, 'exception');
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const detail = detailAfterColon(raw);
+    if (detail) return combineWithFallback(fallback, messageToPlainText(detail));
+  }
+
+  for (const source of sources) {
+    const raw = readErrorProp(source, 'exc');
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    let lastLine = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        lastLine = String(parsed[parsed.length - 1]);
+      }
+    } catch {
+      const lines = raw.trim().split('\n');
+      lastLine = lines[lines.length - 1];
+    }
+    const detail = detailAfterColon(lastLine);
+    if (detail) return combineWithFallback(fallback, messageToPlainText(detail));
+  }
+
+  for (const source of sources) {
+    const raw = readErrorProp(source, 'message');
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    if (GENERIC_ERROR_MESSAGES.has(raw.trim().toLowerCase())) continue;
+    return combineWithFallback(fallback, messageToPlainText(raw));
+  }
+
   return fallback;
 }
 
@@ -89,6 +157,10 @@ const ChecklistGateDialog = ({ posProfile, checklistType, onComplete }: Checklis
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // STATE 2 of the gate UX: the user is eligible (no predecessor block) but
+  // has not started their checklist yet. The form stays hidden until they
+  // press Start Checklist so the screen always offers a clear action.
+  const [started, setStarted] = useState(false);
 
   const titleKey = checklistType === 'Opening' ? 'checklist.title_opening' : 'checklist.title_closing';
 
@@ -96,6 +168,7 @@ const ChecklistGateDialog = ({ posProfile, checklistType, onComplete }: Checklis
     setIsLoading(true);
     setLoadError(null);
     setBlockedBy(null);
+    setStarted(false);
 
     try {
       const checklistResult: any = await getChecklist(posProfile, checklistType);
@@ -218,7 +291,12 @@ const ChecklistGateDialog = ({ posProfile, checklistType, onComplete }: Checklis
             <Spinner message={t('checklist.loading')} />
           </div>
         ) : loadError ? (
-          <p className="py-8 text-center text-sm text-destructive">{loadError}</p>
+          <div className="py-8 text-center">
+            <p className="text-sm text-destructive mb-4">{loadError}</p>
+            <Button onClick={() => void loadChecklist()} variant="outline">
+              {t('checklist.retry')}
+            </Button>
+          </div>
         ) : blockedBy ? (
           <div className="py-10 text-center">
             <p className="text-lg font-semibold text-foreground mb-2">
@@ -230,6 +308,29 @@ const ChecklistGateDialog = ({ posProfile, checklistType, onComplete }: Checklis
                 checklist: t(titleKey),
               })}
             </p>
+            {/*
+              STATE 1: the user is not eligible yet, so there is deliberately
+              no Start Checklist here -- but the predecessor may submit while
+              this screen is open, so offer a recheck instead of stranding the
+              user on a dead-end message.
+            */}
+            <Button onClick={() => void loadChecklist()} variant="outline" className="mt-6">
+              {t('checklist.recheck')}
+            </Button>
+          </div>
+        ) : !started && rows.length > 0 ? (
+          <div className="py-10 text-center">
+            <p className="text-lg font-semibold text-foreground mb-2">
+              {t('checklist.blocked_heading', { checklist: t(titleKey) })}
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">{t('checklist.description')}</p>
+            {/*
+              STATE 2: the user is the eligible role -- the checklist has not
+              been started yet, so the only action on this screen is Start.
+            */}
+            <Button onClick={() => setStarted(true)} className="font-medium py-3 px-6 rounded-lg">
+              {t('checklist.start')}
+            </Button>
           </div>
         ) : (
           <>

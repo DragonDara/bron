@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { getCurrencyCode, getCurrencySymbol, setCurrency } from '@ury/core';
+import { getCurrencyCode, getCurrencySymbol, setCurrency, storage } from '@ury/core';
 import { getRestaurantMenu, getAggregatorMenu, MenuItem as APIMenuItem } from '../lib/menu-api';
 import { getCurrencyInfo, PosProfileCombined, getCombinedPosProfile } from '../lib/pos-profile-api';
 import { getMenuCourses } from '../lib/menu-course-api';
@@ -12,6 +12,8 @@ import { getPaymentModes } from '../lib/payment-api';
 // Constants
 const MAX_QUANTITY = 99;
 const MIN_QUANTITY = 0;
+/** Currency code the cached `currencySymbol` belongs to. */
+const CURRENCY_SYMBOL_CODE_KEY = 'currencySymbolCode';
 
 // Custom error class for cart operations
 class CartError extends Error {
@@ -44,6 +46,14 @@ export interface Customer {
   name: string;
   phone: string;
 }
+
+/**
+ * Where the current customer came from:
+ *  - 'auto'   preselected from the POS Profile default for the order type; follows order-type changes
+ *  - 'manual' picked or cleared by the user; never overwritten by order-type changes
+ *  - 'order'  loaded from an existing order; never overwritten
+ */
+export type CustomerSource = 'auto' | 'manual' | 'order';
 
 export interface OrderItem extends MenuItem {
   quantity: number;
@@ -142,6 +152,8 @@ interface POSStore extends POSState {
   setSelectedPerformer: (employee: string | null) => void;
   setSelectedTable: (table: string | null, room: string | null, doNotLoadOrder?: boolean) => void;
   setSelectedOrderType: (type: OrderType) => void;
+  /** Preselect the profile's default customer for the current order type (new, non-manual orders only). */
+  applyAutoCustomer: () => void;
   setQuickFilter: (filter: 'all' | 'special') => void;
   setSelectedItem: (item: MenuItem | null) => void;
   initializeCart: () => Promise<void>;
@@ -151,6 +163,7 @@ interface POSStore extends POSState {
   fetchCustomerGroups: () => Promise<void>;
   fetchTerritories: () => Promise<void>;
   fetchCurrencySymbol: () => Promise<void>;
+  ensureCurrencySymbol: () => Promise<void>;
   getCartTotals: () => CartTotals;
   itemExistsInCart: (uniqueId: string) => boolean;
   validateQuantity: (quantity: number) => boolean;
@@ -257,42 +270,86 @@ export const usePOSStore = create<POSStore>((set, get) => ({
 
   fetchPosProfile: async () => {
     try {
-      set({ profileLoading: true, error: null });
+      let currencySymbolHandled = false;
+      const cached = sessionStorage.getItem('posProfile');
+      if (cached) {
+        const profile = JSON.parse(cached) as PosProfileCombined;
+        setCurrency(profile.currency);
+        const currency = profile.currency || getCurrencyCode();
+        set({
+          posProfile: profile,
+          profileLoading: false,
+          currency,
+        });
+        get().applyAutoCustomer();
+        if (!storage.getItem('currencySymbol')) {
+          currencySymbolHandled = true;
+          get().ensureCurrencySymbol();
+        }
+      }
+
+      if (!get().posProfile) {
+        set({ profileLoading: true, error: null });
+      }
       const combinedProfile = await getCombinedPosProfile();
       setCurrency(combinedProfile.currency);
-      
+
+      const currency = combinedProfile.currency || getCurrencyCode();
       sessionStorage.setItem('posProfile', JSON.stringify(combinedProfile));
-      set({ 
-        posProfile: combinedProfile, 
+      set({
+        posProfile: combinedProfile,
         profileLoading: false,
-        currency: combinedProfile.currency || getCurrencyCode()
+        currency,
       });
-      
-      await get().fetchCurrencySymbol();
+
+      sessionStorage.setItem('posProfile', JSON.stringify(combinedProfile));
+      set({
+        posProfile: combinedProfile,
+        profileLoading: false,
+        currency: combinedProfile.currency || siteCurrencyCode() || 'INR'
+      });
+      get().applyAutoCustomer();
+
+      if (!currencySymbolHandled && !storage.getItem('currencySymbol')) {
+        await get().ensureCurrencySymbol();
+      }
     } catch (error) {
       console.error('Error fetching POS profile:', error);
-      set({ 
+      set({
         error: 'Failed to fetch POS profile',
-        profileLoading: false 
+        profileLoading: false
       });
     }
   },
 
+  // The cached symbol is tagged with the currency it belongs to, so loading a
+  // profile in a different currency (another company) refetches it instead of
+  // reusing the previous company's symbol.
+  ensureCurrencySymbol: async () => {
+    const currency = get().currency;
+    const cachedSymbol = storage.getItem('currencySymbol');
+    if (currency && cachedSymbol && storage.getItem(CURRENCY_SYMBOL_CODE_KEY) === currency) {
+      setCurrency(currency, cachedSymbol);
+      if (get().currencySymbol !== cachedSymbol) set({ currencySymbol: cachedSymbol });
+      return;
+    }
+    await get().fetchCurrencySymbol();
+  },
+
   fetchCurrencySymbol: async () => {
+    const currency = get().currency;
+    let symbol = currency;
     try {
-      const currency = get().currency;
       setCurrency(currency);
       const response = currency ? await getCurrencyInfo(currency) : { symbol: '' };
-      const symbol = response.symbol || currency;
-      setCurrency(currency, symbol);
-      
-      set({ currencySymbol: symbol });
-
+      symbol = response.symbol || currency;
     } catch (error) {
       console.error('Error fetching currency symbol:', error);
-      setCurrency(get().currency);
-      set({ currencySymbol: get().currency });
     }
+    setCurrency(currency, symbol);
+    set({ currencySymbol: symbol });
+    storage.setItem('currencySymbol', symbol);
+    storage.setItem(CURRENCY_SYMBOL_CODE_KEY, currency);
   },
 
   fetchMenuItems: async () => {
@@ -489,13 +546,20 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     }
   },
   setSelectedOrderType: (type) => {
-    const { fetchMenuItems } = get();
-    
+    const { fetchMenuItems, isUpdatingOrder, customerSource, posProfile } = get();
+
+    // Re-resolve the default customer only while it is auto-set on a new order.
+    // A manual pick, a customer loaded from an existing order, and any customer
+    // on an order being updated are never touched. Aggregators resolve to null
+    // (the aggregator flow owns its customer).
+    const followDefault = !isUpdatingOrder && customerSource === 'auto';
+
     set({ 
       activeOrders: [],
       selectedOrderType: type,
       isUpdatingOrder: false,
-      orderId: null
+      orderId: null,
+      ...(followDefault ? { selectedCustomer: resolveDefaultCustomer(type, posProfile) } : {}),
     });
     
     if (type !== 'Aggregators') {
@@ -658,6 +722,10 @@ export const usePOSStore = create<POSStore>((set, get) => ({
           orderComment: order.custom_comments || '',
         });
       } else {
+        const state = get();
+        // Entering an empty table: preselect the default for the current order type
+        // (entering a table always reset the customer before, so a previous table's
+        // pick never carries over).
         set({
           tableOrder: null,
           activeOrders: [],
@@ -689,6 +757,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   clearTableOrder: () => {
+    const { selectedOrderType, posProfile } = get();
     set({
       tableOrder: null,
       activeOrders: [],
@@ -710,7 +779,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   resetOrderState: () => {
-    const { fetchMenuItems } = get();
+    const { fetchMenuItems, posProfile } = get();
     
     set({
       selectedCustomer: null,

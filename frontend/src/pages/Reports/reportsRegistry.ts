@@ -21,6 +21,7 @@ import {
   Factory,
   Percent,
 } from 'lucide-react';
+import { __ } from '../../i18n';
 
 export interface ReportEntry {
   id: string;
@@ -41,11 +42,11 @@ export const reportsRegistry: ReportEntry[] = [
   { id: 'cancelled-invoices', label: 'Cancelled Invoices', group: 'Sales Summary', path: 'cancelled-invoices', icon: Ban },
   { id: 'average-bill-value', label: 'Average Bill Value', group: 'Sales Summary', path: 'average-bill-value', icon: Gauge },
 
-  { id: 'item-wise-sales', label: 'Item Wise Sales', group: 'Customers & Items', path: 'item-wise-sales', icon: Package },
-  { id: 'item-wise-purchase-history', label: 'Item-wise Purchase History', group: 'Customers & Items', path: 'item-wise-purchase-history', icon: ShoppingCart },
-  { id: 'customer-data', label: 'Customer Data', group: 'Customers & Items', path: 'customer-data', icon: Users },
-  { id: 'daywise-customer-details', label: 'Daywise Customer Details', group: 'Customers & Items', path: 'daywise-customer-details', icon: UserPlus },
-  { id: 'repeated-customers', label: 'Repeated Customers', group: 'Customers & Items', path: 'repeated-customers', icon: Repeat },
+  { id: 'item-wise-sales', label: __('Item Wise Sales'), group: 'Customers & Items', path: 'item-wise-sales', icon: Package },
+  { id: 'item-wise-purchase-history', label: __('Item-wise Purchase History'), group: 'Customers & Items', path: 'item-wise-purchase-history', icon: ShoppingCart },
+  { id: 'customer-data', label: __('Customer Data'), group: 'Customers & Items', path: 'customer-data', icon: Users },
+  { id: 'daywise-customer-details', label: __('Daywise Customer Details'), group: 'Customers & Items', path: 'daywise-customer-details', icon: UserPlus },
+  { id: 'repeated-customers', label: __('Repeated Customers'), group: 'Customers & Items', path: 'repeated-customers', icon: Repeat },
 
   { id: 'employee-sales', label: 'Employee Sales', group: 'Employees & Operations', path: 'employee-sales', icon: UserCog },
   { id: 'employee-commission', label: 'Employee Commission', group: 'Employees & Operations', path: 'employee-commission', icon: Percent },

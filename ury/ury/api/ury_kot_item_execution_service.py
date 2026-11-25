@@ -229,6 +229,14 @@ def _attach_ready_posting_intent(result, actor):
 		result["posting_intent_status"] = "SKIPPED_NATIVE_POS_AUTHORITY"
 		return result
 
+	from ury.ury.api.ury_production_settings import get_manufacture_trigger_time
+
+	trigger_time = get_manufacture_trigger_time()
+	if trigger_time != "On KOT Serve":
+		result["posting_intent"] = None
+		result["posting_intent_status"] = f"SKIPPED_TRIGGER_{trigger_time.upper().replace(' ', '_')}"
+		return result
+
 	from ury.ury.api.ury_fulfilment_posting_service import (
 		create_or_get_posting_intent_for_ready,
 		enqueue_posting_intent,
@@ -386,7 +394,14 @@ def seed_kot_item_executions_on_submit(doc, method=None):
 		# no error surfaced anywhere (found while live-bench verifying
 		# tracks/sa-nontable-production-gap; see test_seed_on_submit_uses_kot_name_not_document
 		# for the regression test).
-		return seed_kot_item_executions(doc.name)
+		created = seed_kot_item_executions(doc.name)
+		from ury.ury.api.ury_production_settings import get_manufacture_trigger_time
+
+		if get_manufacture_trigger_time() == "On KOT Create":
+			from ury.ury.api.ury_fulfilment_posting_service import post_intents_for_kot
+
+			post_intents_for_kot(doc.name)
+		return created
 	except ItemExecutionError as exc:
 		if exc.reason_code == ITEM_EXECUTION_DOCTYPE_NOT_FOUND:
 			frappe.logger("ury").warning(
@@ -426,6 +441,11 @@ def _transition(kot_item, target_state, idempotency_key, actor_field, timestamp_
 	_require_execution_actor(actor, locked["branch"], locked["company"])
 	if locked["state"] == target_state:
 		return _result_dict(locked, idempotent=True)
+	
+	state_order = {QUEUED: 0, IN_PREPARATION: 1, READY: 2, SERVED: 3}
+	if state_order.get(locked["state"], -1) > state_order.get(target_state, -1):
+		return _result_dict(locked, idempotent=True)
+
 	if locked["state"] not in (QUEUED, IN_PREPARATION, READY) or (locked["state"] == QUEUED and target_state not in (IN_PREPARATION, READY)):
 		raise ItemExecutionError(INVALID_EXECUTION_TRANSITION, _("Cannot transition KOT item {0} execution from {1} to {2}").format(kot_item, locked["state"], target_state))
 	doc = frappe.get_doc(ITEM_EXECUTION_DOCTYPE, locked["name"])

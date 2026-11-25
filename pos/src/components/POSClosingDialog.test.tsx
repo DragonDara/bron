@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { call } from "@ury/core";
 import POSClosingDialog from "./POSClosingDialog";
+import { shouldMaskAmounts } from "@ury/core";
 
 const getOpenPosOpeningEntriesMock = vi.fn();
 const getSubCashierPosInvoicesMock = vi.fn();
@@ -56,6 +57,7 @@ vi.mock("../lib/print", () => ({
 }));
 
 vi.mock("@ury/core", () => ({
+  shouldMaskAmounts: vi.fn(() => false),
   call: {
     get: vi.fn().mockResolvedValue({
       message: { owner: "test_user", multiple_cashier: 0 },
@@ -86,7 +88,7 @@ vi.mock("../store/root-store", () => ({
 }));
 
 vi.mock("../i18n", () => ({
-  t: (key: string) => key,
+  t: (key: string) => (key === "pos_closing.submit_failed" ? "Failed to close POS" : key),
 }));
 
 vi.mock("./ClosingPaymentTable", () => ({
@@ -94,6 +96,9 @@ vi.mock("./ClosingPaymentTable", () => ({
     <div>
       {rows.map((row: any) => (
         <div key={row.mode_of_payment}>
+          <span data-testid={`expected-${row.mode_of_payment}`}>
+            {row.expected_amount}
+          </span>
           <input
             data-testid={row.mode_of_payment}
             type="number"
@@ -215,6 +220,27 @@ describe("POSClosingDialog", () => {
     });
   });
 
+  it("masks grand and net total when the POS Profile masks amounts for the user", async () => {
+    vi.mocked(shouldMaskAmounts).mockReturnValue(true);
+    try {
+      render(<POSClosingDialog open={true} onOpenChange={vi.fn()} />);
+
+      const grand = (await screen.findByText("pos_closing.grand_total")).nextElementSibling;
+      const net = (await screen.findByText("pos_closing.net_total")).nextElementSibling;
+      expect(grand?.textContent).toBe("—");
+      expect(net?.textContent).toBe("—");
+    } finally {
+      vi.mocked(shouldMaskAmounts).mockReturnValue(false);
+    }
+  });
+
+  it("shows grand and net total normally when amounts are not masked", async () => {
+    render(<POSClosingDialog open={true} onOpenChange={vi.fn()} />);
+
+    const grand = (await screen.findByText("pos_closing.grand_total")).nextElementSibling;
+    expect(grand?.textContent).not.toBe("—");
+  });
+
   it("renders closing payment table", async () => {
     render(
       <POSClosingDialog
@@ -228,7 +254,7 @@ describe("POSClosingDialog", () => {
     });
   });
 
-  it("prevents submission if closing amounts are not entered", async () => {
+  it("allows submission with blank closing amount fields", async () => {
     render(
       <POSClosingDialog
         open={true}
@@ -240,8 +266,11 @@ describe("POSClosingDialog", () => {
       expect(screen.getByText("pos_closing.submit")).toBeInTheDocument();
     });
 
+    // No closing amount is entered; blank inputs must not block submission.
+    expect(screen.queryByText("pos_closing.validation_missing_rows")).not.toBeInTheDocument();
+    expect(screen.queryByText("pos_closing.validation_all_zero")).not.toBeInTheDocument();
     const submitButton = screen.getByText("pos_closing.submit") as HTMLButtonElement;
-    expect(submitButton).toBeDisabled();
+    expect(submitButton).toBeEnabled();
   });
 
   it("calls onOpenChange with false when cancel is clicked", async () => {
@@ -261,6 +290,67 @@ describe("POSClosingDialog", () => {
     await userEvent.click(cancelButton);
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("computes expected_amount as opening + sales for pre-aggregated payments (ERPNext v16)", async () => {
+    // ERPNext v16 get_invoices returns {invoices, payments, taxes} with
+    // payments pre-aggregated by mode and change_amount already deducted.
+    getMainCashierPosInvoicesMock.mockResolvedValueOnce({
+      invoices: [
+        {
+          name: "SI-001",
+          grand_total: 693,
+          net_total: 693,
+          total_qty: 1,
+          payments: [],
+          taxes: [],
+        },
+      ],
+      payments: [{ mode_of_payment: "Cash", amount: 693, account: "Cash Account" }],
+      taxes: [],
+    });
+
+    render(
+      <POSClosingDialog
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    // Opening balance for Cash is 1000 (db.getDoc mock) + 693 sales = 1693.
+    // 693 must NOT be reduced again by any change_amount.
+    await waitFor(() => {
+      expect(screen.getByTestId("expected-Cash")).toHaveTextContent("1693");
+    });
+  });
+
+  it("computes expected_amount as opening + sales for per-invoice payments", async () => {
+    // Legacy shape: bare invoice list; change_amount is deducted client-side
+    // when the payment account matches account_for_change_amount.
+    getMainCashierPosInvoicesMock.mockResolvedValueOnce([
+      {
+        name: "SI-001",
+        grand_total: 1000,
+        net_total: 900,
+        total_qty: 2,
+        payments: [{ mode_of_payment: "Cash", amount: 1000, account: "Cash Account" }],
+        account_for_change_amount: "Cash Account",
+        change_amount: 50,
+        taxes: [],
+      },
+    ]);
+
+    render(
+      <POSClosingDialog
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    // Opening 1000 + (1000 payment - 50 change) = 1950.
+    await waitFor(() => {
+      expect(screen.getByTestId("expected-Cash")).toHaveTextContent("1950");
+    });
   });
 
   it("gates closing submission on a pending Closing checklist before creating the doc", async () => {
@@ -312,6 +402,48 @@ describe("POSClosingDialog", () => {
     );
     await waitFor(() => {
       expect(createPosClosingEntryMock).toHaveBeenCalled();
+    });
+  });
+
+  it("surfaces a server exception detail (NegativeStockError) instead of the generic fallback", async () => {
+    createPosClosingEntryMock.mockResolvedValue({ name: "PCE-1" });
+    // Frappe HTTP 500 answers carry `exception` but no `_server_messages`;
+    // frappe-js-sdk surfaces it as a plain object, not an Error instance.
+    submitPosClosingEntryMock.mockRejectedValue({
+      exception:
+        "erpnext.stock.stock_ledger.NegativeStockError: 6.0 units of Item BTRSCP: Butter Scotch Scoop needed in Warehouse Direct Retail Warehouse - U to complete this transaction.",
+      exc_type: "NegativeStockError",
+    });
+
+    render(
+      <POSClosingDialog
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("Cash")).toBeInTheDocument();
+    });
+
+    // Touch every row so the submit validates.
+    await userEvent.type(screen.getByTestId("Cash"), "1000");
+    await userEvent.clear(screen.getByTestId("Card"));
+    await userEvent.type(screen.getByTestId("Card"), "0");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "pos_closing.submit" })
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "pos_closing.confirm_submit" })
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Failed to close POS: 6.0 units of Item BTRSCP: Butter Scotch Scoop needed in Warehouse Direct Retail Warehouse - U to complete this transaction."
+        )
+      ).toBeInTheDocument();
     });
   });
 });
@@ -409,7 +541,8 @@ describe("POSClosingDialog shift report printing", () => {
     await closeShift();
 
     expect(await screen.findByText("pos_closing.report_print_failed_title")).toBeInTheDocument();
-    expect(screen.getByText("QZ Tray is not running")).toBeInTheDocument();
+    // The detail is shown after the generic "report_print_failed" prefix.
+    expect(screen.getByText(/QZ Tray is not running/)).toBeInTheDocument();
     expect(screen.queryByText("pos_closing.submit_failed")).not.toBeInTheDocument();
     expect(onClosingSubmitted).not.toHaveBeenCalled();
     expect(submitPosClosingEntryMock).toHaveBeenCalledTimes(1);

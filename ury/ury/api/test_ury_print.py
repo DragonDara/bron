@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch, mock_open, PropertyMock
+from unittest.mock import ANY, MagicMock, patch, mock_open, PropertyMock
 import base64
 
 import frappe
@@ -13,91 +13,76 @@ from ury.ury.api.ury_print import (
 	signature_promise,
 	QZ_SIGNING_ROLES,
 	_get_qz_private_key,
+	_mark_invoice_printed,
 )
 
 
 class TestNetworkPrinting(FrappeTestCase):
 	@patch("ury.ury.api.ury_print.validate_print_permission")
-	@patch("ury.ury.api.ury_print.os.remove")
-	@patch("builtins.open", new_callable=mock_open)
-	@patch("ury.ury.api.ury_print.frappe.get_print")
 	@patch("ury.ury.api.ury_print.frappe.get_doc")
-	def test_network_printing_success_simple(
-		self,
-		mock_get_doc,
-		mock_get_print,
-		mock_file_open,
-		mock_remove,
-		mock_validate_permission,
-	):
-		"""Test successful network printing skips cups when not available."""
-		mock_printer_doc = MagicMock()
-		mock_get_doc.return_value = mock_printer_doc
-		mock_get_print.return_value = MagicMock()
-
-		# Mock the cups import to fail
-		with patch.dict("sys.modules", {"cups": None}):
-			result = network_printing(
-				"POS Invoice",
-				"INV-001",
-				"Printer-1",
-			)
-
-		self.assertIn("Failed to import cups", result)
-
-	@patch("ury.ury.api.ury_print.validate_print_permission")
-	@patch("ury.ury.api.ury_print.frappe.get_doc")
-	def test_network_printing_cups_import_fails(
+	def test_network_printing_success(
 		self, mock_get_doc, mock_validate_permission
 	):
-		"""Test network printing when cups import fails."""
+		"""A successful engine result gains the invoice key and triggers manufacture."""
 		mock_printer_doc = MagicMock()
-		mock_get_doc.return_value = mock_printer_doc
+		mock_printer_doc.print_doc.return_value = {
+			"status": "Success",
+			"cups_job_id": 123,
+		}
+		mock_get_doc.side_effect = [MagicMock(), mock_printer_doc]
 
-		with patch.dict("sys.modules", {"cups": None}):
-			result = network_printing(
-				"POS Invoice",
-				"INV-001",
-				"Printer-1",
-			)
+		with patch(
+			"ury.ury.api.ury_fulfilment_posting_service.trigger_manufacture_on_bill_print"
+		) as mock_trigger:
+			result = network_printing("POS Invoice", "INV-001", "Printer-1")
 
-		self.assertIn("Failed", result)
+		self.assertEqual(result, "Success")
+		self.assertEqual(result["invoice"], "INV-001")
+		mock_trigger.assert_called_once_with("INV-001")
+
+		print_doc_kwargs = mock_printer_doc.print_doc.call_args[1]
+		self.assertEqual(print_doc_kwargs["job_type"], "BILL")
+		self.assertEqual(print_doc_kwargs["doctype"], "POS Invoice")
+		self.assertEqual(print_doc_kwargs["name"], "INV-001")
+		self.assertEqual(print_doc_kwargs["extra_metadata"]["invoice"], "INV-001")
+		self.assertIn("job_owner", print_doc_kwargs["extra_metadata"])
 
 	@patch("ury.ury.api.ury_print.validate_print_permission")
-	@patch("ury.ury.api.ury_print.os.remove")
-	@patch("builtins.open", new_callable=mock_open)
-	@patch("ury.ury.api.ury_print.frappe.db.set_value")
-	@patch("ury.ury.api.ury_print.frappe.db.get_value")
-	@patch("ury.ury.api.ury_print.frappe.get_print")
 	@patch("ury.ury.api.ury_print.frappe.get_doc")
-	def test_network_printing_with_update(
-		self,
-		mock_get_doc,
-		mock_get_print,
-		mock_db_get_value,
-		mock_db_set_value,
-		mock_file_open,
-		mock_remove,
-		mock_validate_permission,
+	def test_network_printing_failure(
+		self, mock_get_doc, mock_validate_permission
 	):
-		"""Test network printing updates invoice status."""
+		"""A failed engine result is returned without triggering manufacture."""
 		mock_printer_doc = MagicMock()
-		mock_printer_doc.server_ip = "192.168.1.100"
-		mock_printer_doc.port = 631
-		mock_get_doc.return_value = mock_printer_doc
-		mock_get_print.return_value = MagicMock()
+		mock_printer_doc.print_doc.return_value = {
+			"status": "Failure",
+			"message": "printer offline",
+		}
+		mock_get_doc.side_effect = [MagicMock(), mock_printer_doc]
 
-		mock_db_get_value.return_value = (None, 0, "INV-001")
+		with patch(
+			"ury.ury.api.ury_fulfilment_posting_service.trigger_manufacture_on_bill_print"
+		) as mock_trigger:
+			result = network_printing("POS Invoice", "INV-001", "Printer-1")
 
-		# Mock the cups import to fail
-		with patch.dict("sys.modules", {"cups": None}):
-			result = network_printing(
-				"POS Invoice",
-				"INV-001",
-				"Printer-1",
-			)
+		self.assertEqual(result, "Failure")
+		self.assertNotIn("invoice", result)
+		mock_trigger.assert_not_called()
 
-		self.assertIn("Failed to import cups", result)
+	@patch("ury.ury.api.ury_print.validate_print_permission")
+	@patch("ury.ury.api.ury_print.frappe.get_doc")
+	def test_network_printing_non_dict_result_passthrough(
+		self, mock_get_doc, mock_validate_permission
+	):
+		"""Non-dict engine results are returned unchanged (no PrintResult wrap)."""
+		mock_printer_doc = MagicMock()
+		mock_printer_doc.print_doc.return_value = "Success"
+		mock_get_doc.side_effect = [MagicMock(), mock_printer_doc]
+
+		result = network_printing("POS Invoice", "INV-001", "Printer-1")
+
+		self.assertEqual(result, "Success")
+		self.assertIsInstance(result, str)
 
 	@patch("ury.ury.api.ury_print.validate_print_permission")
 	@patch("ury.ury.api.ury_print.frappe.get_print")
@@ -225,7 +210,8 @@ class TestQzPrintUpdate(FrappeTestCase):
 		mock_invoice = MagicMock()
 		mock_get_doc.return_value = mock_invoice
 
-		mock_db_get_value.side_effect = [None, 1]
+		# table lookup, prior invoice_printed read by the helper, post-update validation
+		mock_db_get_value.side_effect = [None, 0, 1]
 
 		result = qz_print_update("INV-001")
 
@@ -294,7 +280,12 @@ class TestPrintPosPage(FrappeTestCase):
 		call_args = mock_publish.call_args
 		self.assertIn("print_", call_args[0][0])
 
-		mock_db_set_value.assert_called_once_with("POS Invoice", "INV-001", "invoice_printed", 1)
+		mock_db_set_value.assert_called_once_with(
+			"POS Invoice",
+			"INV-001",
+			{"invoice_printed": 1, "custom_printing_time": ANY},
+			update_modified=True,
+		)
 		mock_release.assert_called_once_with("T-01")
 
 	@patch("ury.ury.api.ury_print.frappe.db.set_value")
@@ -481,3 +472,41 @@ class TestQzSigningRoles(FrappeTestCase):
 		self.assertIn("URY Admin", QZ_SIGNING_ROLES)
 		self.assertIn("URY Manager", QZ_SIGNING_ROLES)
 		self.assertIn("URY Cashier", QZ_SIGNING_ROLES)
+
+
+class TestMarkInvoicePrinted(FrappeTestCase):
+	@patch("ury.ury.api.ury_print.frappe.utils.now_datetime", return_value="2026-11-03 10:15:00")
+	@patch("ury.ury.api.ury_print.frappe.db.set_value")
+	def test_first_print_records_printing_time(self, mock_set_value, _mock_now):
+		"""The first print sets invoice_printed and custom_printing_time."""
+		_mark_invoice_printed("INV-001", was_printed=0)
+
+		mock_set_value.assert_called_once_with(
+			"POS Invoice",
+			"INV-001",
+			{"invoice_printed": 1, "custom_printing_time": "2026-11-03 10:15:00"},
+			update_modified=True,
+		)
+
+	@patch("ury.ury.api.ury_print.frappe.db.set_value")
+	def test_reprint_keeps_original_printing_time(self, mock_set_value):
+		"""A reprint must not overwrite the first print time."""
+		_mark_invoice_printed("INV-001", was_printed=1)
+
+		mock_set_value.assert_called_once_with(
+			"POS Invoice", "INV-001", {"invoice_printed": 1}, update_modified=True
+		)
+
+	@patch("ury.ury.api.ury_print.frappe.utils.now_datetime", return_value="2026-11-03 10:15:00")
+	@patch("ury.ury.api.ury_print.frappe.db.set_value")
+	@patch("ury.ury.api.ury_print.frappe.db.get_value", return_value=0)
+	def test_reads_previous_state_when_not_supplied(self, _mock_get, mock_set_value, _mock_now):
+		"""Without was_printed, the helper reads invoice_printed itself."""
+		_mark_invoice_printed("INV-001", update_modified=False)
+
+		mock_set_value.assert_called_once_with(
+			"POS Invoice",
+			"INV-001",
+			{"invoice_printed": 1, "custom_printing_time": "2026-11-03 10:15:00"},
+			update_modified=False,
+		)

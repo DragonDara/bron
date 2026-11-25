@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import React, { forwardRef, useImperativeHandle, useMemo, useEffect } from 'react';
 import { defineCatalog } from '@json-render/core';
 import { schema } from '@json-render/react/schema';
@@ -31,11 +32,11 @@ const formCatalog = defineCatalog(schema, {
   components: {
     FormRoot: {
       props: z.object({}),
-      description: "Form root container"
+      description: 'Form root container'
     },
     FormSection: {
       props: z.object({ label: z.string().optional() }),
-      description: "Form section with a label"
+      description: 'Form section with a label'
     },
     FieldRenderer: {
       props: z.object({
@@ -44,7 +45,7 @@ const formCatalog = defineCatalog(schema, {
         error: z.string().optional(),
         options: z.array(z.any()).optional()
       }),
-      description: "Generic field renderer"
+      description: 'Generic field renderer'
     }
   }
 });
@@ -119,7 +120,7 @@ const { registry } = defineRegistry(formCatalog, {
               <DatePicker
                 id={field.id}
                 value={val || ''}
-                placeholder="dd-mm-yyyy"
+                placeholder={__('dd-mm-yyyy')}
                 error={!!props.error}
                 onChange={(_fieldId, newVal) => handleChange(newVal)}
               />
@@ -146,10 +147,10 @@ function buildElementTree(oldSchema: any) {
     sections.push({ fields: oldSchema.fields });
   } else {
     if (oldSchema.company?.length) {
-      sections.push({ label: 'Company Details', fields: oldSchema.company });
+      sections.push({ label: __('Company Details'), fields: oldSchema.company });
     }
     if (oldSchema.general?.length) {
-      sections.push({ label: 'General Settings', fields: oldSchema.general });
+      sections.push({ label: __('General Settings'), fields: oldSchema.general });
     }
   }
 

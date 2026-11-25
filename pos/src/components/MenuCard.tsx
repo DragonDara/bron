@@ -1,6 +1,7 @@
 import { FC, useEffect, useState } from 'react';
 import { MenuItemCard } from '@ury/ui';
 import { formatCurrency } from '@ury/core';
+import { t } from '../i18n';
 import {
   getAvailabilityTranslationKey,
   getItemAvailability,

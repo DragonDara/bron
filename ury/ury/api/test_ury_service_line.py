@@ -5,13 +5,14 @@ from datetime import datetime, timedelta
 from ury.ury.api.ury_service_line import (
     get_service_line,
     get_running_low,
+    _bin_actual_qty,
 )
 
 
 class TestGetServiceLine(FrappeTestCase):
 
     def setUp(self):
-        patcher = patch("ury.ury.api.ury_service_line.require_manager")
+        patcher = patch("ury.ury.api.ury_service_line.require_dashboard_user")
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -205,7 +206,7 @@ class TestGetServiceLine(FrappeTestCase):
 class TestGetRunningLow(FrappeTestCase):
 
     def setUp(self):
-        patcher = patch("ury.ury.api.ury_service_line.require_manager")
+        patcher = patch("ury.ury.api.ury_service_line.require_dashboard_user")
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -230,12 +231,13 @@ class TestGetRunningLow(FrappeTestCase):
         self.assertEqual(result, cached_data)
         mock_cache_instance.get_value.assert_called_once()
 
+    @patch("ury.ury.api.ury_service_line._bin_actual_qty")
     @patch("ury.ury.api.ury_service_line.frappe.cache")
     @patch("ury.ury.api.ury_service_line.frappe.db.get_value")
     @patch("ury.ury.api.ury_service_line.frappe.db.sql")
     @patch("ury.ury.api.ury_service_line.get_datetime")
     @patch("ury.ury.api.ury_service_line.today")
-    def test_running_low_with_items(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj):
+    def test_running_low_with_items(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj, mock_bin_qty):
         mock_cache_instance = MagicMock()
         mock_cache_obj.return_value = mock_cache_instance
         mock_cache_instance.get_value.return_value = None
@@ -253,7 +255,8 @@ class TestGetRunningLow(FrappeTestCase):
             })
         ]
 
-        mock_get_value.side_effect = ["Kitchen - U", 50]
+        mock_get_value.return_value = "Kitchen - U"
+        mock_bin_qty.return_value = 50
 
         result = get_running_low(branch="URY Branch")
 
@@ -266,12 +269,13 @@ class TestGetRunningLow(FrappeTestCase):
         self.assertGreater(first_item["eta_minutes"], 0)
         self.assertFalse(first_item["data_quality_issue"])
 
+    @patch("ury.ury.api.ury_service_line._bin_actual_qty")
     @patch("ury.ury.api.ury_service_line.frappe.cache")
     @patch("ury.ury.api.ury_service_line.frappe.db.get_value")
     @patch("ury.ury.api.ury_service_line.frappe.db.sql")
     @patch("ury.ury.api.ury_service_line.get_datetime")
     @patch("ury.ury.api.ury_service_line.today")
-    def test_running_low_negative_stock_flags_data_quality(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj):
+    def test_running_low_negative_stock_flags_data_quality(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj, mock_bin_qty):
         mock_cache_instance = MagicMock()
         mock_cache_obj.return_value = mock_cache_instance
         mock_cache_instance.get_value.return_value = None
@@ -289,7 +293,8 @@ class TestGetRunningLow(FrappeTestCase):
             })
         ]
 
-        mock_get_value.side_effect = ["Kitchen - U", -20]
+        mock_get_value.return_value = "Kitchen - U"
+        mock_bin_qty.return_value = -20
 
         result = get_running_low(branch="URY Branch")
 
@@ -323,12 +328,13 @@ class TestGetRunningLow(FrappeTestCase):
         # items loop is what's skipped when there's nothing sold.
         mock_get_value.assert_called_once_with("POS Profile", {"branch": "URY Branch"}, "warehouse")
 
+    @patch("ury.ury.api.ury_service_line._bin_actual_qty")
     @patch("ury.ury.api.ury_service_line.frappe.cache")
     @patch("ury.ury.api.ury_service_line.frappe.db.get_value")
     @patch("ury.ury.api.ury_service_line.frappe.db.sql")
     @patch("ury.ury.api.ury_service_line.get_datetime")
     @patch("ury.ury.api.ury_service_line.today")
-    def test_running_low_no_branch(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj):
+    def test_running_low_no_branch(self, mock_today, mock_get_datetime, mock_sql, mock_get_value, mock_cache_obj, mock_bin_qty):
         mock_cache_instance = MagicMock()
         mock_cache_obj.return_value = mock_cache_instance
         mock_cache_instance.get_value.return_value = None
@@ -349,7 +355,7 @@ class TestGetRunningLow(FrappeTestCase):
         # branch=None skips the POS Profile warehouse lookup entirely (see
         # `if branch:` guard in get_running_low), so only the per-item Bin
         # lookup fires — a single call, not two.
-        mock_get_value.side_effect = [100]
+        mock_bin_qty.return_value = 100
 
         result = get_running_low(branch=None)
 
@@ -357,17 +363,38 @@ class TestGetRunningLow(FrappeTestCase):
         first_item = result[0]
         self.assertEqual(first_item["item_code"], "ITEM3")
         self.assertEqual(first_item["remaining"], 100)
+        mock_get_value.assert_not_called()
+        mock_bin_qty.assert_called_once_with("ITEM3", None)
+
+
+class TestBinActualQty(FrappeTestCase):
+
+    @patch("ury.ury.api.ury_service_line.frappe.get_all")
+    def test_sums_with_warehouse(self, mock_get_all):
+        mock_get_all.return_value = [10, 5.5, -2]
+        self.assertEqual(_bin_actual_qty("ITEM1", "Kitchen - U"), 13.5)
+        mock_get_all.assert_called_once_with(
+            "Bin", filters={"item_code": "ITEM1", "warehouse": "Kitchen - U"}, pluck="actual_qty"
+        )
+
+    @patch("ury.ury.api.ury_service_line.frappe.get_all")
+    def test_sums_without_warehouse(self, mock_get_all):
+        mock_get_all.return_value = []
+        self.assertEqual(_bin_actual_qty("ITEM1"), 0.0)
+        mock_get_all.assert_called_once_with(
+            "Bin", filters={"item_code": "ITEM1"}, pluck="actual_qty"
+        )
 
 
 class TestServiceLineRealPermissionBoundary(FrappeTestCase):
-	"""Real (non-mocked) coverage of `require_manager()` for this module.
+	"""Real (non-mocked) coverage of `require_dashboard_user()` for this module.
 
-	Every test class above in this file patches `require_manager` out
+	Every test class above in this file patches `require_dashboard_user` out
 	entirely, so the actual permission gate guarding `get_service_line()`
 	and `get_running_low()` has never been exercised against a real
 	session/role table -- only the business logic behind it has. This uses
-	`frappe.set_user()` with a real, role-less user and asserts the actual
-	`frappe.PermissionError`.
+	`frappe.set_user()` with a real, role-less user and a real URY Cashier
+	user, asserting the actual `frappe.PermissionError` (or its absence).
 	"""
 
 	@classmethod
@@ -377,6 +404,9 @@ class TestServiceLineRealPermissionBoundary(FrappeTestCase):
 
 		cls.no_role_user = make_user(
 			email="p4r3-serviceline-norole@ury.test", roles=[]
+		).name
+		cls.cashier_user = make_user(
+			email="p4r3-serviceline-cashier@ury.test", roles=["URY Cashier"]
 		).name
 
 	def tearDown(self):
@@ -391,3 +421,13 @@ class TestServiceLineRealPermissionBoundary(FrappeTestCase):
 		frappe.set_user(self.no_role_user)
 		with self.assertRaises(frappe.PermissionError):
 			get_running_low()
+
+	def test_get_service_line_allows_cashier_user(self):
+		frappe.set_user(self.cashier_user)
+		result = get_service_line()
+		self.assertIsInstance(result, list)
+
+	def test_get_running_low_allows_cashier_user(self):
+		frappe.set_user(self.cashier_user)
+		result = get_running_low()
+		self.assertIsInstance(result, list)

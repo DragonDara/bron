@@ -194,6 +194,7 @@ jobs:
               ury.ury.api.test_ury_wastage
               ury.ury.api.test_ury_yield_variance
               ury.ury.api.test_ury_workstation_mapping
+              ury.ury.class_overrides.test_pos_invoice
               ury.ury.controllers.test_setup_redirect
               ury.ury.doctype.alert_settings.test_alert_settings
               ury.ury.doctype.staff_discount_policy.test_staff_discount_policy
@@ -247,6 +248,7 @@ jobs:
               ury.ury.services.test_yield_check_reminders
               ury.ury_pos.test_api
               ury.ury_pos.test_e2e_p0_p1_flow
+              ury.ury_pos.test_validate_pos_close
 
     steps:
       - name: Checkout code

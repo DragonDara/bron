@@ -5,6 +5,8 @@ import unittest
 from collections.abc import Hashable
 from unittest.mock import patch
 
+import unittest
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -442,7 +444,12 @@ class TestURYItemProductionConfiguration(FrappeTestCase):
                     # Should not raise
                     doc.insert(ignore_permissions=True)
 
-    @unittest.skip("Skipped 2026-10-29 (red on v3-stg CI): ValidationError not raised. TODO: investigate.")
+    @unittest.skip(
+        "targets validate_no_cross_department_bom_components(), which is "
+        "commented out in URYItemProductionConfiguration.validate() -- the "
+        "test has never been green. Re-enable the validation (deliberately "
+        "disabled by the feature owner) before unskipping."
+    )
     def test_mto_with_cross_department_bom_rejects(self):
         """Cross-department BOM component is rejected."""
         values = {

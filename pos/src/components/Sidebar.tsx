@@ -4,7 +4,7 @@ import { usePOSStore } from '../store/pos-store';
 import { SidebarContainer, SidebarCard, SidebarActiveIndicator, sidebarItemVariants, Button, Badge } from '@ury/ui';
 import CommentDialog from './CommentDialog';
 import { useState } from 'react';
-import { t } from '../i18n';
+import { t, tData } from '../i18n';
 
 interface SidebarProps {
   disabled?: boolean;

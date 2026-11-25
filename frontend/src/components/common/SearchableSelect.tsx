@@ -1,3 +1,4 @@
+import { __ } from '../../i18n';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@ury/ui';
@@ -219,7 +220,7 @@ export function SearchableSelect({
           );
         })
       ) : (
-        <div className="px-4 py-2 text-sm text-gray-400">No matching options</div>
+        <div className="px-4 py-2 text-sm text-gray-400">{__('No matching options')}</div>
       )}
     </div>
   ) : null;
@@ -236,7 +237,7 @@ export function SearchableSelect({
           error={error}
           disabled={disabled}
           autoComplete="off"
-          className="w-full pr-9 cursor-text"
+          className="w-full pe-9 cursor-text"
         />
         <div
           onClick={() => {
@@ -245,7 +246,7 @@ export function SearchableSelect({
               if (!isOpen) setIsTyping(false);
             }
           }}
-          className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 p-1 transition-colors ${
+          className={`absolute end-3 top-1/2 -translate-y-1/2 text-gray-400 p-1 transition-colors ${
             disabled ? 'pointer-events-none opacity-50' : 'cursor-pointer hover:text-gray-600'
           }`}
         >

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from ury.ury.doctype.ury_daily_p_and_l.ury_daily_p_and_l import URYDailyPandL
+from ury.ury.doctype.ury_daily_p_and_l.ury_daily_p_and_l import URYDailyPandL, resolve_pnl_currency
 
 MODULE = "ury.ury.doctype.ury_daily_p_and_l.ury_daily_p_and_l"
 
@@ -36,3 +36,20 @@ class TestGetProftLossDetails(FrappeTestCase):
 			{"data": doc, "currency": "KZT"},
 		)
 		self.assertEqual(result, "<html>rendered</html>")
+
+
+class TestResolvePnlCurrency(FrappeTestCase):
+	def test_uses_the_branch_company_currency(self):
+		def cached(doctype, name, field):
+			return {("Branch", "Muscat"): "URY Oman", ("Company", "URY Oman"): "OMR"}[(doctype, name)]
+
+		with patch(f"{MODULE}.frappe.get_cached_value", side_effect=cached):
+			self.assertEqual(resolve_pnl_currency("Muscat"), "OMR")
+
+	def test_falls_back_to_site_default_then_inr(self):
+		with patch("erpnext.get_default_currency", return_value="AED"):
+			self.assertEqual(resolve_pnl_currency(None), "AED")
+		with patch("erpnext.get_default_currency", return_value=None), patch(
+			f"{MODULE}.frappe.defaults.get_global_default", return_value=None
+		):
+			self.assertEqual(resolve_pnl_currency(None), "INR")

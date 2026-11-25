@@ -19,6 +19,7 @@ export function CustomerSelect({ disabled }: CustomerSelectProps) {
       onChange={setSelectedCustomer}
       disabled={disabled || isUpdatingOrder}
       optional={Boolean(posProfile?.custom_allow_order_without_customer)}
+      orderType={selectedOrderType}
     />
   );
 }

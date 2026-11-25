@@ -1,6 +1,16 @@
+import { __, uiLocale } from '../../i18n';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useBranchContext } from '../../context/BranchContext';
-import { logout, call, getLoggedUser, getUserRoles } from '@ury/core';
+import {
+  logout,
+  call,
+  getLoggedUser,
+  getUserRoles,
+  withReturnContext,
+  appLabelForPath,
+  DESK_RETURN_STORAGE_KEY,
+} from '@ury/core';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { Breadcrumbs } from './Breadcrumbs';
 import { useDeskPermission } from '../DeskLink';
 import { Link } from 'react-router-dom';
@@ -18,6 +28,7 @@ import {
   LogOut,
   Store,
   Building2,
+  Building,
   Check,
   ExternalLink,
   RefreshCw
@@ -33,6 +44,22 @@ interface NotificationItem {
   read: boolean;
 }
 
+/** Short relative time for Frappe datetimes ("2026-02-25 14:39:24.589936"). */
+function formatRelativeTime(value: string): string {
+  if (!value) return '';
+  const d = new Date(value.replace(' ', 'T').slice(0, 19));
+  if (isNaN(d.getTime())) return value;
+  const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+}
+
 /**
  * Frappe's Notification Log stores `email_content` as HTML (built for email
  * rendering). Strip tags for the compact drawer preview instead of trusting
@@ -46,18 +73,22 @@ function stripHtml(html: string): string {
 
 export const Header: React.FC = () => {
   const { activeBranchId, setActiveBranchId, branches, activeBranch } = useBranchContext();
+  const { activeCompanyId, setActiveCompanyId, companies, activeCompany } = useCompanyContext();
   const deskPermission = useDeskPermission('User');
 
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+  const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [userInfo, setUserInfo] = useState({ fullName: 'Admin User', email: 'admin@urypos.com' });
 
   const userMenuRef = useRef<HTMLDivElement>(null);
   const branchMenuRef = useRef<HTMLDivElement>(null);
+  const companyMenuRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 
   const handleClickOutside = useCallback((event: MouseEvent) => {
     if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
@@ -65,6 +96,9 @@ export const Header: React.FC = () => {
     }
     if (branchMenuRef.current && !branchMenuRef.current.contains(event.target as Node)) {
       setIsBranchDropdownOpen(false);
+    }
+    if (companyMenuRef.current && !companyMenuRef.current.contains(event.target as Node)) {
+      setIsCompanyDropdownOpen(false);
     }
   }, []);
 
@@ -94,9 +128,13 @@ export const Header: React.FC = () => {
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
+        const userId = await getLoggedUser();
+        if (!userId) return;
         const res = await call('frappe.client.get_list', {
           doctype: 'Notification Log',
+          filters: { for_user: userId },
           fields: ['name', 'subject', 'email_content', 'creation', 'read'],
+          order_by: 'creation desc',
           limit_page_length: 5
         });
         if (res && res.message) {
@@ -114,11 +152,28 @@ export const Header: React.FC = () => {
         console.error('Failed to fetch notifications', e);
       }
     };
+    const fetchUnreadCount = async () => {
+      try {
+        const userId = await getLoggedUser();
+        if (!userId) return;
+        const res = await call('frappe.client.get_count', {
+          doctype: 'Notification Log',
+          filters: { for_user: userId, read: 0 }
+        });
+        if (res && typeof res.message === 'number') {
+          setUnreadCount(res.message);
+        }
+      } catch (e) {
+        console.error('Failed to fetch unread notification count', e);
+      }
+    };
     fetchNotifications();
+    fetchUnreadCount();
   }, []);
 
   const handleMarkAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
   const handleClearCache = () => {
@@ -136,7 +191,12 @@ export const Header: React.FC = () => {
     } catch {
       // Ignore logout errors
     } finally {
-      window.location.href = '/login?redirect-to=%2Fpos';
+      const path = window.location.pathname || '';
+      const matched = ['/pos', '/ury', '/mosaic', '/urypos', '/order'].find(
+        (prefix) => path === prefix || path.startsWith(prefix + '/')
+      );
+      const redirectTarget = matched || (path.startsWith('/') ? path : '/ury');
+      window.location.href = `/login?redirect-to=${encodeURIComponent(redirectTarget)}`;
     }
   };
 
@@ -144,39 +204,117 @@ export const Header: React.FC = () => {
     <header className="sticky top-0 z-40 w-full bg-background border-b border-border">
       <div className="flex items-center justify-between h-12 px-4 md:px-6">
         {/* Left Section: Logo, Brand & Breadcrumb */}
-        <div className="flex items-center space-x-4 min-w-0">
-          <Link to="/dashboard" className="flex items-center space-x-3 group shrink-0">
-            <img src={uryLogo} alt="URY Logo" className="h-8 w-auto" />
-          </Link>
+        <div className="flex items-center gap-4 min-w-0">
+          <a
+            href="/desk"
+            onClick={() => {
+              try {
+                sessionStorage.setItem(
+                  DESK_RETURN_STORAGE_KEY,
+                  JSON.stringify({
+                    path: window.location.pathname + window.location.search,
+                    label: appLabelForPath(window.location.pathname),
+                  })
+                );
+              } catch (e) {
+                /* ignore */
+              }
+            }}
+            className="flex items-center gap-3 group shrink-0"
+          >
+            <img src={uryLogo} alt={__('URY Logo')} className="h-8 w-auto" />
+          </a>
           <div className="hidden sm:block h-4 w-px bg-border shrink-0" />
           <Breadcrumbs />
         </div>
 
         {/* Right Section: Actions, Notifications, Branch Selector, User Profile */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           {/* Ask HUF bar (PLAN.md item 6) — opens the shared ChatWidget
               pre-focused, also reachable via the global ⌘K shortcut. */}
           <div className="hidden md:block w-56 lg:w-72">
             <AskBar />
           </div>
 
+          {/* Company Selector Dropdown */}
+          <div className="relative" ref={companyMenuRef}>
+            <button
+              onClick={() => setIsCompanyDropdownOpen(!isCompanyDropdownOpen)}
+              className="flex items-center gap-2 h-7 px-2.5 bg-muted hover:bg-muted/70 rounded-[7px] text-sm font-medium text-foreground transition-colors"
+            >
+              <Building className="w-4 h-4 text-muted-foreground" />
+              <span className="max-w-[120px] sm:max-w-[160px] truncate">
+                {activeCompanyId === 'all' ? __('All Companies') : (activeCompany?.name || __('Select Company'))}
+              </span>
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCompanyDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isCompanyDropdownOpen && (
+              <div className="absolute end-0 mt-2 w-64 bg-card rounded-lg shadow-lg border border-border py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="px-3 py-1.5 text-xs font-semibold text-text-tertiary uppercase tracking-wider">
+                  {__('Select Active Company')}
+                </div>
+
+                <button
+                  onClick={() => {
+                    setActiveCompanyId('all');
+                    setIsCompanyDropdownOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-sm text-start transition-colors ${
+                    activeCompanyId === 'all'
+                      ? 'bg-primary-tint text-primary font-semibold'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Building className="w-4 h-4" />
+                    <span>{__('All Companies')}</span>
+                  </div>
+                  {activeCompanyId === 'all' && <Check className="w-4 h-4 text-primary" />}
+                </button>
+
+                <div className="my-1 border-t border-border" />
+
+                {companies.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => {
+                      setActiveCompanyId(c.name);
+                      setIsCompanyDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-sm text-start transition-colors ${
+                      activeCompanyId === c.name
+                        ? 'bg-primary-tint text-primary font-semibold'
+                        : 'text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="truncate">{c.company_name || c.name}</span>
+                    </div>
+                    {activeCompanyId === c.name && <Check className="w-4 h-4 text-primary shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Branch Selector Dropdown */}
           <div className="relative" ref={branchMenuRef}>
             <button
               onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
-              className="flex items-center space-x-2 h-7 px-2.5 bg-muted hover:bg-muted/70 rounded-[7px] text-sm font-medium text-foreground transition-colors"
+              className="flex items-center gap-2 h-7 px-2.5 bg-muted hover:bg-muted/70 rounded-[7px] text-sm font-medium text-foreground transition-colors"
             >
               <Building2 className="w-4 h-4 text-muted-foreground" />
               <span className="max-w-[120px] sm:max-w-[160px] truncate">
-                {activeBranchId === 'all' ? 'All Branches' : (activeBranch?.name || 'Select Branch')}
+                {activeBranchId === 'all' ? __('All Branches') : (activeBranch?.name || __('Select Branch'))}
               </span>
               <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isBranchDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-64 bg-card rounded-lg shadow-lg border border-border py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute end-0 mt-2 w-64 bg-card rounded-lg shadow-lg border border-border py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                 <div className="px-3 py-1.5 text-xs font-semibold text-text-tertiary uppercase tracking-wider">
-                  Select Active Branch
+                  {__('Select Active Branch')}
                 </div>
 
                 <button
@@ -189,9 +327,9 @@ export const Header: React.FC = () => {
                       : 'text-foreground hover:bg-muted'
                     }`}
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center gap-2">
                     <Store className="w-4 h-4" />
-                    <span>All Branches</span>
+                    <span>{__('All Branches')}</span>
                   </div>
                   {activeBranchId === 'all' && <Check className="w-4 h-4 text-primary" />}
                 </button>
@@ -210,7 +348,7 @@ export const Header: React.FC = () => {
                         : 'text-foreground hover:bg-muted'
                       }`}
                   >
-                    <div className="flex items-center space-x-2 truncate">
+                    <div className="flex items-center gap-2 truncate">
                       <span className="truncate">{b.name}</span>
                     </div>
                     {activeBranchId === b.id && <Check className="w-4 h-4 text-primary shrink-0" />}
@@ -226,18 +364,20 @@ export const Header: React.FC = () => {
             className={buttonVariants({ variant: 'chrome', size: 'xs', className: 'gap-2' })}
           >
             <ExternalLink className="w-4 h-4" />
-            <span>Open POS</span>
+            <span>{__('Open POS')}</span>
           </a>
 
           {/* Notifications Bell */}
           <button
             onClick={() => setIsNotificationOpen(true)}
             className="relative flex items-center justify-center w-7 h-7 rounded-[7px] text-muted-foreground hover:bg-muted transition-colors"
-            aria-label="Open notifications"
+            aria-label={__('Open notifications')}
           >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full ring-2 ring-background" />
+              <span className="absolute -top-1 -end-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold leading-none bg-primary text-white rounded-full ring-2 ring-background">
+                {formatBadge(unreadCount)}
+              </span>
             )}
           </button>
 
@@ -255,7 +395,7 @@ export const Header: React.FC = () => {
             </button>
 
             {isUserMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-card rounded-lg shadow-lg border border-border z-50">
+              <div className="absolute end-0 mt-2 w-56 bg-card rounded-lg shadow-lg border border-border z-50">
                 <div className="p-4 border-b border-border">
                   <p className="text-sm font-medium text-foreground">{userInfo.fullName}</p>
                   <p className="text-sm text-muted-foreground truncate">{userInfo.email}</p>
@@ -270,31 +410,42 @@ export const Header: React.FC = () => {
                       setIsUserMenuOpen(false);
                       handleClearCache();
                     }}
-                    className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    <span>Clear Cache</span>
+                    <span>{__('Clear Cache')}</span>
                   </button>
 
                   {deskPermission?.read && (
                     <button
                       onClick={() => {
                         setIsUserMenuOpen(false);
-                        window.location.href = '/app';
+                        try {
+                          sessionStorage.setItem(
+                            DESK_RETURN_STORAGE_KEY,
+                            JSON.stringify({
+                              path: window.location.pathname + window.location.search,
+                              label: appLabelForPath(window.location.pathname),
+                            })
+                          );
+                        } catch (e) {
+                          /* ignore */
+                        }
+                        window.location.href = withReturnContext('/desk/ury');
                       }}
-                      className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                     >
                       <ExternalLink className="w-4 h-4" />
-                      <span>Switch to Desk</span>
+                      <span>{__('Switch to Desk')}</span>
                     </button>
                   )}
 
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-destructive hover:bg-destructive-tint transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-destructive hover:bg-destructive-tint transition-colors"
                   >
                     <LogOut className="w-4 h-4 text-destructive" />
-                    <span>Logout</span>
+                    <span>{__('Logout')}</span>
                   </button>
                 </div>
               </div>
@@ -311,27 +462,27 @@ export const Header: React.FC = () => {
             onClick={() => setIsNotificationOpen(false)}
           />
 
-          <div className="fixed inset-y-0 right-0 pl-10 max-w-full flex">
-            <div className="w-screen max-w-md bg-card shadow-2xl flex flex-col border-l border-border">
+          <div className="fixed inset-y-0 end-0 ps-10 max-w-full flex">
+            <div className="w-screen max-w-md bg-card shadow-2xl flex flex-col border-s border-border">
               {/* Drawer Header */}
               <div className="p-4 border-b border-border flex items-center justify-between bg-muted">
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <Bell className="w-5 h-5 text-primary" />
-                  <h2 className="text-base font-semibold text-foreground">Notifications</h2>
+                  <h2 className="text-base font-semibold text-foreground">{__('Notifications')}</h2>
                   {unreadCount > 0 && (
                     <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white rounded-full">
-                      {unreadCount}
+                      {formatBadge(unreadCount)}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   {unreadCount > 0 && (
                     <button
                       onClick={handleMarkAllRead}
                       className="text-xs font-medium text-primary hover:underline"
                     >
-                      Mark all read
+                      {__('Mark all read')}
                     </button>
                   )}
                   <button
@@ -347,16 +498,17 @@ export const Header: React.FC = () => {
               <div className="flex-1 overflow-y-auto divide-y divide-border">
                 {notifications.length === 0 ? (
                   <div className="p-8 text-center text-muted-foreground">
-                    No new notifications
+                    {__('No new notifications')}
                   </div>
                 ) : (
                   notifications.map((item) => (
                     <div
                       key={item.id}
-                      className={`p-4 transition-colors ${item.read ? 'bg-card' : 'bg-primary-tint/40'
-                        }`}
+                      className={`p-4 transition-colors ${
+                        item.read ? 'bg-card' : 'bg-primary-tint border-s-2 border-primary'
+                      }`}
                     >
-                      <div className="flex items-start space-x-3">
+                      <div className="flex items-start gap-3">
                         <div className="mt-0.5">
                           {item.type === 'info' && <Info className="w-5 h-5 text-primary" />}
                           {item.type === 'warning' && <AlertTriangle className="w-5 h-5 text-warning" />}
@@ -365,8 +517,16 @@ export const Header: React.FC = () => {
 
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                            <span className="text-xs text-text-tertiary">{item.timestamp}</span>
+                            <p className={`text-sm flex items-center gap-2 ${item.read ? 'font-normal text-muted-foreground' : 'font-semibold text-foreground'}`}>
+                              {!item.read && (
+                                <>
+                                  <span aria-hidden="true" className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                                  <span className="sr-only">{__('Unread:')} </span>
+                                </>
+                              )}
+                              {item.title}
+                            </p>
+                            <span className="text-xs text-text-tertiary">{formatRelativeTime(item.timestamp)}</span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">{item.message}</p>
                         </div>
@@ -382,7 +542,7 @@ export const Header: React.FC = () => {
                   onClick={() => setIsNotificationOpen(false)}
                   className="w-full py-2 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg bg-card hover:bg-muted transition-colors"
                 >
-                  Close
+                  {__('Close')}
                 </button>
               </div>
             </div>

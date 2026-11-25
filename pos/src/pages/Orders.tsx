@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { showToast } from '@ury/ui';
 import OrderStatusSidebar from '../components/OrderStatusSidebar';
 import { useRootStore } from '../store/root-store';
-import { formatCurrency } from '@ury/core';
+import { formatCurrency, normalizeFrappeTime } from '@ury/core';
 import { Spinner } from '@ury/ui';
 import { Textarea } from '@ury/ui';
 import { usePOSStore } from '../store/pos-store';
@@ -34,9 +34,15 @@ import {
   isOrderTypeNotAllowedError,
   isLastItemCannotBeRemovedError,
 } from '../lib/order-api';
-import { parseFrappeError } from '../lib/pos-opening-api';
+import { parseFrappeError } from '@ury/core';
 import { formatMergedTableLabel } from '../lib/table-utils';
-import { t } from '../i18n';
+import { t, getActiveLanguage } from '../i18n';
+import {
+  getPrintWarningState,
+  formatFrappeDatetime,
+  type PrintWarningInput,
+} from '../lib/invoice-print-warning';
+import { orderTypeLabel } from '../data/order-types';
 
 function getOrderTableLabel(order: Pick<POSInvoice, 'restaurant_table' | 'custom_merged_tables'>) {
   if (!order.restaurant_table) return null;
@@ -86,6 +92,23 @@ export default function Orders() {
   } = useRootStore();
 
   const posStore = usePOSStore();
+  const printWarningMinutes = posStore.posProfile?.custom_invoice_warning_time ?? 0;
+  const [clockNow, setClockNow] = React.useState(() => Date.now());
+  useEffect(() => {
+    if (!printWarningMinutes) return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [printWarningMinutes]);
+
+  const renderPrintWarning = (order: PrintWarningInput) => {
+    const warning = getPrintWarningState(order, printWarningMinutes, clockNow);
+    if (!warning.exceeded) return null;
+    return (
+      <Badge variant="outline" className="border-red-500 text-red-600 bg-red-50">
+        {warning.elapsedLabel}
+      </Badge>
+    );
+  };
   const navigate = useNavigate();
   const mounted = useRef(false);
   const [cancelDialogOpen, setCancelDialogOpen] = React.useState(false);
@@ -168,7 +191,7 @@ export default function Orders() {
 
   // Function to format the date and time
   const formatDateTime = (date: string, time: string) => {
-    const formattedDate = new Date(date + ' ' + time).toLocaleString('en-US', {
+    const formattedDate = new Date(date + ' ' + normalizeFrappeTime(time)).toLocaleString(getActiveLanguage(), {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -214,7 +237,7 @@ export default function Orders() {
       clearSelectedOrder();
       fetchOrders();
     } catch (err) {
-      showToast.error(err instanceof Error ? err.message : t('errors.failed_cancel_order'));
+      showToast.error(parseFrappeError(err, t('errors.failed_cancel_order')));
     } finally {
       setCancelLoading(false);
     }
@@ -231,9 +254,7 @@ export default function Orders() {
       }
       navigate('/register');
     } catch (err) {
-      showToast.error(
-        parseFrappeError(err) || (err instanceof Error ? err.message : t('errors.failed_edit_order'))
-      );
+      showToast.error(parseFrappeError(err, t('errors.failed_edit_order')));
     } finally {
       setEditLoading(false);
     }
@@ -264,9 +285,9 @@ export default function Orders() {
     } catch (err) {
       const parsedMessage = parseFrappeError(err) || (err instanceof Error ? err.message : null);
       if (isOrderTypeNotAllowedError(parsedMessage)) {
-        showToast.error(`Quantity reduction isn't allowed for ${selectedOrder.order_type} orders.`);
+        showToast.error(t('orders.qty_reduction_not_allowed', { order_type: orderTypeLabel(selectedOrder.order_type) }));
       } else if (isLastItemCannotBeRemovedError(parsedMessage)) {
-        showToast.error('This is the last item on the order. Cancel the whole order instead.');
+        showToast.error(t('orders.last_item_cannot_remove'));
       } else {
         showToast.error(parsedMessage || 'Failed to reduce item quantity.');
       }
@@ -287,7 +308,14 @@ export default function Orders() {
       showToast.success(t('success.printed'));
       // Locally update selectedOrder.invoice_printed to 1
       if (selectedOrder && typeof selectedOrder === 'object') {
-        selectOrder({ ...selectedOrder, invoice_printed: 1 });
+        const wasPrinted = Number(selectedOrder.invoice_printed) === 1;
+        selectOrder({
+          ...selectedOrder,
+          invoice_printed: 1,
+          custom_printing_time: wasPrinted
+            ? selectedOrder.custom_printing_time ?? null
+            : formatFrappeDatetime(new Date()),
+        });
       }
       // If order was Unbilled, set to Draft and reload draft orders
       if (selectedStatus === 'Unbilled') {
@@ -382,7 +410,7 @@ export default function Orders() {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
-          <p className="text-xl font-semibold text-red-600 mb-2">Failed to load orders</p>
+          <p className="text-xl font-semibold text-red-600 mb-2">{t('orders.failed_to_load')}</p>
           <p className="text-gray-600">{error}</p>
         </div>
       </div>
@@ -449,14 +477,15 @@ export default function Orders() {
                       <div className="min-w-0">
                         <p className="text-xs text-gray-500">
                           {getOrderTableLabel(order)
-                            ? `Table ${getOrderTableLabel(order)} • `
-                            : ''}{t(`order_types.${order.order_type.toLowerCase().replace(/ /g, '_')}`)}
+                            ? `${t('pos_ui.table')} ${getOrderTableLabel(order)} • `
+                            : ''}{orderTypeLabel(order.order_type)}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <Badge variant={getBadgeVariant(order.status)}>
                           {t(`order_status_types.${order.status.toLowerCase().replace(/ /g, '_')}`)}
                         </Badge>
+                        {renderPrintWarning(order)}
                       </div>
                     </div>
                     {mergedBill && order.custom_merged_pos_invoice && (
@@ -541,7 +570,7 @@ export default function Orders() {
           </div>
         ) : selectedOrderError ? (
           <div className="text-center h-full flex flex-col items-center justify-center text-red-500 p-6">
-            <p className="text-lg font-medium mb-2">Failed to load order details</p>
+            <p className="text-lg font-medium mb-2">{t('orders.failed_to_load_details')}</p>
             <p className="text-sm">{selectedOrderError}</p>
           </div>
         ) : (
@@ -566,7 +595,7 @@ export default function Orders() {
                       <button
                         type="button"
                         className="inline-flex items-center justify-center rounded-md p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        aria-label="Edit order"
+                        aria-label={t('orders.edit_order')}
                         onClick={handleEditOrder}
                         disabled={editLoading}
                       >
@@ -577,7 +606,7 @@ export default function Orders() {
                         <button
                           type="button"
                           className="inline-flex items-center justify-center rounded-md p-2 bg-gray-100 hover:bg-gray-200 text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500"
-                          aria-label="Cancel order"
+                          aria-label={t('orders.cancel_order')}
                           onClick={() => setCancelDialogOpen(true)}
                         >
                           <X className="w-4 h-4" />
@@ -732,10 +761,10 @@ export default function Orders() {
                                 )}
                               </button>
                             )}
-                            <p className="text-xs text-gray-500">Qty: {item.qty}</p>
+                            <p className="text-xs text-gray-500">{t('orders.qty_label', { qty: item.qty })}</p>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-end">
                           <p className="text-sm font-semibold text-gray-900">
                             {formatCurrency(item.amount)}
                           </p>
@@ -773,7 +802,7 @@ export default function Orders() {
                   size="icon"
                   className="flex-shrink-0"
                   onClick={handlePrintOrder}
-                  aria-label="Print"
+                  aria-label={t('order.print')}
                   disabled={isPrinting}
                 >
                   {isPrinting ? <Spinner className="w-5 h-5" hideMessage  message={t('common.loading')} /> : <Printer className="w-5 h-5" />}
@@ -783,7 +812,11 @@ export default function Orders() {
                   <Button
                     className="flex-1"
                     onClick={() => {
-                      if (String(selectedOrder.invoice_printed) === '0') {
+                      const enablePaymentWithoutPrinting = Boolean(
+                        Number(posStore.posProfile?.enable_payment_without_printing) === 1 ||
+                        Number((posStore.posProfile as any)?.custom_enable_payment_without_printing) === 1
+                      );
+                      if (String(selectedOrder.invoice_printed) === '0' && !enablePaymentWithoutPrinting) {
                         showToast.error(t('errors.please_print_first'));
                         return;
                       }
@@ -811,6 +844,7 @@ export default function Orders() {
       </div>
       {showPaymentDialog && selectedOrder && (
         <PaymentDialog
+          order={selectedOrder}
           onClose={() => setShowPaymentDialog(false)}
           grandTotal={selectedOrderTotals.grandTotal}
           roundedTotal={selectedOrderTotals.roundedTotal}

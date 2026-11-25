@@ -1,0 +1,323 @@
+{
+ "actions": [],
+ "autoname": "WSTG-.FY.-.#####",
+ "creation": "2026-08-28 00:00:00",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "posting_date",
+  "posting_time",
+  "datetime",
+  "edit_posting_date",
+  "branch",
+  "company",
+  "department",
+  "production_unit",
+  "warehouse",
+  "column_break_scope",
+  "issue_authorization",
+  "plan",
+  "status",
+  "wastage_source",
+  "reason_category",
+  "reason_notes",
+  "section_break_approval",
+  "section_break_items",
+  "items",
+  "section_break_totals",
+  "total_cost",
+  "section_break_mgsh",
+  "captured_by",
+  "captured_on",
+  "column_break_approval",
+  "approved_by",
+  "approved_on",
+  "approval_permission_basis",
+  "section_break_audit",
+  "audit_log",
+  "amended_from",
+  "stock_entry"
+ ],
+ "fields": [
+  {
+   "fieldname": "issue_authorization",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "in_list_view": 1,
+   "label": "Issue Authorization",
+   "options": "URY Issue Authorization"
+  },
+  {
+   "fieldname": "plan",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Sales Plan",
+   "options": "URY Sales Plan"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Branch",
+   "options": "Branch",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Department",
+   "options": "URY Production Department"
+  },
+  {
+   "fieldname": "production_unit",
+   "fieldtype": "Link",
+   "label": "Production Unit",
+   "options": "URY Production Unit"
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nAuthorized\nRejected",
+   "read_only": 1
+  },
+  {
+   "default": "Physical Audit",
+   "fieldname": "wastage_source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Wastage Source",
+   "options": "Physical Audit\nKOT Cancellation"
+  },
+  {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
+   "fieldname": "reason_category",
+   "fieldtype": "Select",
+   "label": "Reason Category",
+   "options": "Spoilage\nPreparation Error\nDropped/Damaged\nExpired\nOther",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
+   "fieldname": "reason_notes",
+   "fieldtype": "Small Text",
+   "label": "Reason Notes",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
+   "fieldname": "section_break_approval",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "captured_by",
+   "fieldtype": "Data",
+   "label": "Captured By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "captured_on",
+   "fieldtype": "Datetime",
+   "label": "Captured On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved/Rejected By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved/Rejected On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_permission_basis",
+   "fieldtype": "Data",
+   "label": "Approval Permission Basis",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.wastage_source === 'KOT Cancellation'",
+   "fieldname": "section_break_audit",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "audit_log",
+   "fieldtype": "Long Text",
+   "label": "Audit Log (JSON)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Wastage Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "label": "Total Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "URY Wastage",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "stock_entry",
+   "fieldtype": "Link",
+   "label": "Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_mgsh",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "datetime",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Datetime",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.wastage_source !== 'KOT Cancellation'",
+   "fieldname": "edit_posting_date",
+   "fieldtype": "Check",
+   "label": "Edit Posting Date and Time"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "read_only_depends_on": "eval:doc.edit_posting_date == 0"
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Time",
+   "read_only_depends_on": "eval:doc.edit_posting_date == 0"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-11-10 10:27:30.680818",
+ "modified_by": "Administrator",
+ "module": "URY",
+ "name": "URY Wastage",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Production Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock User"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "URY Manager"
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "URY Admin",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

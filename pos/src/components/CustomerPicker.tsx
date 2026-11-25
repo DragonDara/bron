@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CustomerPicker as CustomerPickerView, type CustomerOption } from '@ury/ui';
-import { addCustomer, searchCustomers } from '../lib/customer-api';
-import { type Customer } from '../store/pos-store';
+import { addCustomer, searchCustomers, getCustomersByOrderType } from '../lib/customer-api';
+import { type Customer, usePOSStore } from '../store/pos-store';
+import { useRootStore } from '../store/root-store';
 import { t } from '../i18n';
 
 export interface CustomerPickerProps {
@@ -9,6 +10,7 @@ export interface CustomerPickerProps {
   onChange: (customer: Customer | null) => void;
   disabled?: boolean;
   optional?: boolean;
+  orderType?: string;
 }
 
 function parseCustomer(row: { name: string; content?: string }): CustomerOption {
@@ -19,12 +21,44 @@ function parseCustomer(row: { name: string; content?: string }): CustomerOption 
   };
 }
 
-export function CustomerPicker({ value, onChange, disabled, optional }: CustomerPickerProps) {
+export function CustomerPicker({ value, onChange, disabled, optional, orderType }: CustomerPickerProps) {
+  const posStoreProfile = usePOSStore((state) => state.posProfile);
+  const rootStoreProfile = useRootStore((state) => state.posProfile);
+  const posProfile = posStoreProfile || rootStoreProfile;
+
+  const country =
+    posProfile?.country ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem('posProfile');
+        return raw ? JSON.parse(raw)?.country : undefined;
+      } catch {
+        return undefined;
+      }
+    })() ||
+    (typeof window !== 'undefined' && ((window as any)?.frappe?.boot?.sysdefaults?.country || (window as any)?.frappe?.boot?.country)) ||
+    undefined;
   const [results, setResults] = useState<CustomerOption[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const handleSearch = useCallback((query: string) => {
+  const fetchCustomers = useCallback((query: string, currentOrderType?: string) => {
+    if (currentOrderType && typeof getCustomersByOrderType === 'function') {
+      setSearching(true);
+      setSearchError(null);
+      getCustomersByOrderType(currentOrderType, query)
+        .then((rows) => {
+          setResults(rows.map(parseCustomer));
+          setSearchError(null);
+        })
+        .catch(() => {
+          setResults([]);
+          setSearchError(t('customer.failed_search'));
+        })
+        .finally(() => setSearching(false));
+      return;
+    }
+
     const term = query.trim();
     setSearching(true);
     setSearchError(null);
@@ -40,6 +74,19 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
       .finally(() => setSearching(false));
   }, []);
 
+  const handleSearch = useCallback(
+    (query: string) => {
+      fetchCustomers(query, orderType);
+    },
+    [fetchCustomers, orderType]
+  );
+
+  useEffect(() => {
+    if (orderType && typeof getCustomersByOrderType === 'function') {
+      fetchCustomers('', orderType);
+    }
+  }, [orderType, fetchCustomers]);
+
   return (
     <CustomerPickerView
       value={value}
@@ -49,10 +96,13 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
       searchError={searchError}
       onSearch={handleSearch}
       disabled={disabled}
+      resultsHeader={orderType ? `${orderType} Customers` : undefined}
+      country={country}
       onCreate={async ({ name, phone }) => {
         const response = await addCustomer({
           customer_name: name,
           mobile_number: phone,
+          pos_profile: posProfile?.name,
         });
         const created = response.data;
         if (!created.name) {
@@ -77,6 +127,7 @@ export function CustomerPicker({ value, onChange, disabled, optional }: Customer
         searchFailed: t('customer.failed_search'),
         searching: t('common.searching'),
         createTitle: t('customer.add_customer_title'),
+        invalidPhone: posProfile?.country ? t('customer.phone_invalid', { country: posProfile.country }) : undefined,
       }}
     />
   );
