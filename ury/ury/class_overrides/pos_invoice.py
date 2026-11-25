@@ -5,7 +5,7 @@ from erpnext.accounts.doctype.pos_invoice.pos_invoice import (
 )
 
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import add_days, flt, get_datetime, getdate, now_datetime
 
 try:
 	from erpnext.accounts.doctype.pos_invoice.pos_invoice import ProductBundleStockValidationError
@@ -60,7 +60,65 @@ except ImportError:
 			return get_stock_availability(item_code, warehouse)
 
 
+# URY business day starts at 05:00: until then it is still the previous day,
+# so a shift opened in the evening keeps working after midnight.
+BUSINESS_DAY_START_HOUR = 5
+
+
+def get_business_date(now=None):
+	now = get_datetime(now) if now else now_datetime()
+	if now.hour < BUSINESS_DAY_START_HOUR:
+		return getdate(add_days(now, -1))
+	return getdate(now)
+
+
 class CustomPOSInvoice(POSInvoice):
+	def validate_pos_opening_entry(self):
+		# Copy of ERPNext 16.60.0 SalesInvoice.validate_pos_opening_entry with one change:
+		# the final "outdated" check uses URY's 05:00 business date instead of the calendar date.
+		# Re-check this copy when ERPNext is upgraded.
+		opening_entries = frappe.get_all(
+			"POS Opening Entry",
+			fields=["name", "period_start_date"],
+			filters={"pos_profile": self.pos_profile, "status": "Open"},
+			order_by="period_start_date desc",
+		)
+		if not opening_entries:
+			frappe.throw(
+				title=_("POS Opening Entry Missing"),
+				msg=_("No open POS Opening Entry found for POS Profile {0}.").format(
+					frappe.bold(self.pos_profile)
+				),
+			)
+		if len(opening_entries) > 1:
+			frappe.throw(
+				title=_("Multiple POS Opening Entry"),
+				msg=_(
+					"POS Profile - {0} has multiple open POS Opening Entries. Please close or cancel the existing entries before proceeding."
+				).format(self.pos_profile),
+			)
+		opening_entry = opening_entries[0]
+		if self.set_posting_time:
+			posting_datetime = get_datetime(f"{self.posting_date} {self.posting_time or '00:00:00'}")
+			if getdate(posting_datetime) != getdate(opening_entry.period_start_date) or (
+				posting_datetime < get_datetime(opening_entry.period_start_date)
+			):
+				frappe.throw(
+					_(
+						"Posting date and time must be on the same day as, and at or after, the start of POS Opening Entry {0}: {1}."
+					).format(opening_entry.name, opening_entry.period_start_date)
+				)
+			if getdate(posting_datetime) < getdate():
+				return
+
+		if getdate(opening_entry.period_start_date) != get_business_date():  # URY: was getdate()
+			frappe.throw(
+				title=_("Outdated POS Opening Entry"),
+				msg=_(
+					"POS Opening Entry - {0} is outdated. Please close the POS and create a new POS Opening Entry."
+				).format(opening_entry.name),
+			)
+
 	def validate_stock_availablility(self):
 		if self.is_return or frappe.get_cached_doc("Stock Settings").allow_negative_stock:
 			return
