@@ -70,6 +70,15 @@ def _format_report_context(report_context):
 	return f"[report_context]\n{lines}\n[/report_context]\n\n"
 
 
+def _with_session_context(report_context):
+	"""Add today's business date (the agent can't otherwise know it) under
+	whatever page context the frontend sent (selected branch, report)."""
+	ctx = {"today": frappe.utils.today()}
+	if isinstance(report_context, dict):
+		ctx.update({k: v for k, v in report_context.items() if v not in (None, "")})
+	return ctx
+
+
 @frappe.whitelist(methods=["POST"])
 def get_or_create_conversation(report_context=None):
 	"""Return an existing (cached) or newly-created HUF Agent Conversation id
@@ -156,7 +165,7 @@ def send_chat_message(conversation_id, message, report_context=None):
 	try:
 		agent_chat = _get_agent_chat_module()
 
-		full_message = _format_report_context(report_context) + message
+		full_message = _format_report_context(_with_session_context(report_context)) + message
 
 		response = agent_chat.send_message_to_conversation(
 			conversation=conversation_id,
@@ -181,3 +190,41 @@ def get_chat_history(conversation_id, limit=50):
 		return {"available": True, "history": history}
 	except Exception:
 		return _huf_unavailable(frappe.get_traceback())
+
+
+@frappe.whitelist(methods=["GET"])
+def get_run_result(agent_run_id):
+	"""Poll target for asynchronous HUF replies: `send_chat_message` may
+	return `{"queued": True, "agent_run_id": ...}` instead of the answer.
+	Returns `{"available": True, "status", "response", "error_message"}` for
+	that Agent Run. The run must belong to a conversation owned by the
+	session user (or the user's cached dashboard conversation)."""
+	require_manager()
+
+	if "huf" not in frappe.get_installed_apps():
+		return _huf_unavailable("huf app is not installed on this site")
+
+	if not frappe.db.exists("Agent Run", agent_run_id):
+		frappe.throw(frappe._("Agent Run not found"), frappe.DoesNotExistError)
+
+	run = frappe.db.get_value(
+		"Agent Run",
+		agent_run_id,
+		["status", "response", "error_message", "conversation", "owner"],
+		as_dict=True,
+	)
+	conversation_owner = (
+		frappe.db.get_value("Agent Conversation", run.conversation, "owner") if run.conversation else None
+	)
+	cached_id = frappe.cache().get_value(_conversation_cache_key())
+	if frappe.session.user not in (conversation_owner, run.owner) and not (
+		run.conversation and run.conversation == cached_id
+	):
+		frappe.throw(frappe._("You do not have access to this run."), frappe.PermissionError)
+
+	return {
+		"available": True,
+		"status": run.status,
+		"response": run.response,
+		"error_message": run.error_message,
+	}

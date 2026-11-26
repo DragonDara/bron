@@ -4,7 +4,7 @@ import { useRootStore } from '../store/root-store';
 import { cn } from '@ury/ui';
 import { Button } from '@ury/ui';
 import TableSelectionDialog from './TableSelectionDialog';
-import { DINE_IN, ORDER_TYPES , type OrderType} from '../data/order-types';
+import { DINE_IN, ORDER_TYPES, orderTypeLabel, type OrderType} from '../data/order-types';
 import { HandPlatter } from 'lucide-react';
 import { isUserRestrictedFromTableOrders } from '@ury/core';
 import { formatMergedTableLabel } from '../lib/table-utils';
@@ -79,7 +79,7 @@ const OrderTypeSelect = ({ disabled }: OrderTypeSelectProps) => {
               title={isDineIn && isRestrictedFromTableOrders ? t('errors.dine_in_restricted') || 'Dine In is not available for your role' : undefined}
             >
               <Icon className="w-4 h-4" />
-              {t(`order_types.${value.toLowerCase().replace(/ /g, '_')}`)}
+              {orderTypeLabel(value)}
             </Button>
           );
         })}

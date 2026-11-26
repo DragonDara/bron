@@ -135,6 +135,26 @@ describe("ClosingPaymentTable", () => {
       />
     );
     
-    expect(screen.getByText("Payment Mode")).toBeInTheDocument();
+    expect(screen.getByText("pos_closing.payment_mode")).toBeInTheDocument();
+  });
+
+  it("masks the expected amount when hideExpected is set", () => {
+    render(
+      <ClosingPaymentTable
+        rows={mockRows}
+        touchedModes={new Set()}
+        onChange={vi.fn()}
+        hideExpected
+      />
+    );
+    expect(screen.queryByText("Rs. 500.00")).toBeNull();
+    expect(screen.queryByText("Rs. 300.00")).toBeNull();
+    // Expected and Difference are both masked for every row.
+    expect(screen.getAllByText("—")).toHaveLength(4);
+    screen.getAllByRole("row").slice(1).forEach((row) => {
+      const cells = row.querySelectorAll("td");
+      expect(cells[2].textContent).toBe("—"); // Expected
+      expect(cells[4].textContent).toBe("—"); // Difference
+    });
   });
 });

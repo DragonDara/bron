@@ -8,6 +8,78 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 def after_install():
     create_custom_fields(get_custom_fields())
     add_roles_to_administrator()
+    hide_setup_sidebar_options()
+    setup_pos_invoice_print_fields()
+
+def setup_pos_invoice_print_fields():
+    """Ensure mode of payment and discount fields are visible in POS Invoice standard print format."""
+    fields_to_unhide = [
+        ("POS Invoice", "additional_discount_percentage", "print_hide", "0", "Check"),
+        ("POS Invoice", "additional_discount_percentage", "print_hide_if_no_value", "1", "Check"),
+        ("POS Invoice", "discount_amount", "print_hide", "0", "Check"),
+        ("POS Invoice", "discount_amount", "print_hide_if_no_value", "1", "Check"),
+        ("POS Invoice", "payments", "print_hide", "0", "Check"),
+        ("POS Invoice", "paid_amount", "print_hide", "0", "Check"),
+        ("POS Invoice", "change_amount", "print_hide", "0", "Check"),
+        ("POS Invoice", "change_amount", "print_hide_if_no_value", "1", "Check"),
+        ("Sales Invoice Payment", "type", "print_hide", "1", "Check"),
+    ]
+
+    for dt, fn, prop, val, ptype in fields_to_unhide:
+        frappe.make_property_setter(
+            {
+                "doctype": dt,
+                "doctype_or_field": "DocField",
+                "fieldname": fn,
+                "property": prop,
+                "value": val,
+                "property_type": ptype,
+            }
+        )
+
+
+def hide_setup_sidebar_options():
+	"""Hide Access, Email, Data, and Integrations options from the Setup sidebar."""
+	if not frappe.db.table_exists("Sidebar Item"):
+		return
+
+	items_to_hide = (
+		# Access
+		"Access",
+		"Role",
+		"Role Permissions",
+		"User Permissions",
+		"Authorization Rule",
+		# Email
+		"Email",
+		"Email Account",
+		"Email Template",
+		"Email Digest",
+		# Data
+		"Data",
+		"Data Import",
+		"Rename Tool",
+		"Bulk Transaction Log",
+		"Transaction Deletion Record",
+		# Integrations
+		"Integrations",
+		"Incoming Call Settings",
+		"Voice Call Settings",
+		"Call Log",
+		"Telephony Call Type",
+		"Communication Medium",
+		"Code List",
+		"Common Code",
+	)
+	frappe.db.sql(
+		"""
+		UPDATE `tabSidebar Item`
+		SET hidden = 1
+		WHERE parent = 'Setup' AND label IN %s
+		""",
+		(items_to_hide,),
+	)
+	frappe.clear_cache()
 
 def add_roles_to_administrator():
     try:
@@ -719,6 +791,17 @@ def get_custom_fields():
 			},
 		],
 
+		"Network Printer Settings": [
+			{
+				"fieldname": "custom_printer_queue_name",
+				"fieldtype": "Data",
+				"insert_after": "printer_name",
+				"label": "Printer Queue Name",
+				"description": "CUPS queue name for this printer. Used by URY Print Job and printer health matching.",
+				"translatable": 0,
+			}
+		],
+
 		"URY KOT": [
 			{
 				"fieldname": "custom_merged_tables",
@@ -729,6 +812,13 @@ def get_custom_fields():
 			},
 		],
 		"Stock Entry": [
+			{
+				"fieldname": "branch",
+				"fieldtype": "Link",
+				"label": "Branch",
+				"options": "Branch",
+				"insert_after": "company",
+			},
 			{
 				"fieldname": "custom_ury_posting_intent",
 				"fieldtype": "Data",

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Percent, Coins } from 'lucide-react';
+import { X, Percent, Coins, Printer } from 'lucide-react';
 import { usePOSStore } from '../store/pos-store';
-import { formatCurrency } from '@ury/core';
+import { formatCurrency, parseFrappeError } from '@ury/core';
 import { Button, Input, Dialog, DialogContent, showToast } from '@ury/ui';
 import { call } from '@ury/core';
 import { DEFAULT_PAYMENT_MODE } from '../data/order-types';
@@ -10,6 +10,7 @@ import { BillingQuote, getInvoiceBillingQuote } from '../lib/pos-billing-api';
 
 
 interface PaymentDialogProps {
+  order?: (Pick<POSInvoice, 'custom_merged_pos_invoice'> & { invoice_printed?: string | number }) | null;
   onClose: () => void;
   grandTotal: number;
   roundedTotal: number;
@@ -27,6 +28,7 @@ interface PaymentDialogProps {
 }
 
 const PaymentDialog: React.FC<PaymentDialogProps> = ({
+  order,
   onClose,
   grandTotal,
   roundedTotal,
@@ -43,7 +45,12 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
   discountAmount
 }) => {
   const { paymentModes, fetchPaymentModes, posProfile: storePosProfile } = usePOSStore();
+  const enablePaymentWithoutPrinting = Boolean(
+    Number(storePosProfile?.enable_payment_without_printing) === 1 ||
+    Number((storePosProfile as any)?.custom_enable_payment_without_printing) === 1
+  );
   const [isProcessing, setIsProcessing] = useState(false);
+  const [printInvoice, setPrintInvoice] = useState(enablePaymentWithoutPrinting);
   const [error, setError] = useState<string | null>(null);
   
   // Calculate effective percentage if only amount is provided (for invoice-level discounts)
@@ -170,7 +177,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
       clearSelectedOrder();
       await fetchOrders();
     } catch (err) {
-      setError((err as Error).message);
+      console.error('Payment failed:', err);
+      setError(parseFrappeError(err, t('errors.payment_failed')));
     } finally {
       setIsProcessing(false);
     }
@@ -180,7 +188,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent variant="xlarge" className="bg-white w-full max-w-4xl max-h-dialog-max-h flex flex-col md:flex-row p-0" showCloseButton={false}>
         {/* Left Column - Discount and Payment Mode */}
-        <div className="md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-border overflow-y-auto">
+        <div className="md:w-1/2 p-6 border-b md:border-b-0 md:border-e border-border overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">{t('payment.title')}</h2>
             <Button
@@ -251,8 +259,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                 {formatCurrency(paymentsTotal)} / {formatCurrency(finalTotal)}
                 {paymentsTotal > finalTotal && (
                   <span className="text-yellow-700 font-semibold">
-                    <Coins className="inline w-4 h-4 ml-1 text-yellow-500" />
-                    <span className="text-yellow-500 font-bold ml-1">{formatCurrency(paymentsTotal - finalTotal)}</span>
+                    <Coins className="inline w-4 h-4 ms-1 text-yellow-500" />
+                    <span className="text-yellow-500 font-bold ms-1">{formatCurrency(paymentsTotal - finalTotal)}</span>
                   </span>
                 )}
               </span>
@@ -337,6 +345,26 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Print Invoice Checkbox */}
+          {enablePaymentWithoutPrinting && (
+            <div className="mb-4 flex items-center gap-2">
+              <input
+                id="print-invoice-checkbox"
+                type="checkbox"
+                checked={printInvoice}
+                onChange={(e) => setPrintInvoice(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              />
+              <label
+                htmlFor="print-invoice-checkbox"
+                className="text-sm font-medium text-gray-700 cursor-pointer select-none flex items-center gap-1.5"
+              >
+                <Printer className="w-4 h-4 text-gray-500" />
+                {t('payment.print_invoice')}
+              </label>
+            </div>
+          )}
 
           {/* Payment Button */}
           <Button

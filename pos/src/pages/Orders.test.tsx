@@ -11,7 +11,7 @@ vi.mock("@ury/ui", () => ({
       {children}
     </button>
   ),
-  Badge: ({ children, variant }: any) => (
+  Badge: ({ children }: any) => (
     <span data-testid="badge">{children}</span>
   ),
   Card: ({ children }: any) => <div data-testid="card">{children}</div>,
@@ -56,7 +56,9 @@ vi.mock("../store/root-store", () => ({
   useRootStore: vi.fn(() => mockRootStoreState),
 }));
 
-const mockPosStore = {
+const mockPosStore: {
+  posProfile: { name: string; enable_payment_without_printing?: number } | null;
+} = {
   posProfile: { name: "POS-001" },
   openOrderForEdit: vi.fn(),
 };
@@ -74,6 +76,7 @@ vi.mock("react-router-dom", () => ({
 // Mock core functions
 vi.mock("@ury/core", () => ({
   formatCurrency: (amount: number) => `Rs. ${amount}`,
+  normalizeFrappeTime: (time: any) => time || "2026-11-03 12:00:00",
   call: {
     get: vi.fn().mockResolvedValue({ message: { has_permission: true } }),
   },
@@ -109,6 +112,7 @@ vi.mock("../lib/table-utils", () => ({
 
 // Mock i18n with proper number formatting support
 vi.mock("../i18n", () => ({
+  getActiveLanguage: () => "en",
   t: (key: string, opts?: any) => {
     if (key === 'orders.pagination.page' && opts?.number) {
       return `Page ${opts.number}`;
@@ -224,7 +228,7 @@ describe("Orders Page", () => {
       mockPosStore.openOrderForEdit.mockResolvedValue(true);
       render(<Orders />);
 
-      fireEvent.click(screen.getByLabelText("Edit order"));
+      fireEvent.click(screen.getByLabelText("orders.edit_order"));
 
       await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/register"));
       expect(mockPosStore.openOrderForEdit).toHaveBeenCalledWith("INV-0038", "Table 5");
@@ -234,7 +238,7 @@ describe("Orders Page", () => {
       mockPosStore.openOrderForEdit.mockResolvedValue(false);
       render(<Orders />);
 
-      fireEvent.click(screen.getByLabelText("Edit order"));
+      fireEvent.click(screen.getByLabelText("orders.edit_order"));
 
       await waitFor(() => expect(showToast.error).toHaveBeenCalledWith("errors.failed_edit_order"));
       expect(navigateMock).not.toHaveBeenCalled();
@@ -247,5 +251,41 @@ describe("Orders Page", () => {
 
     expect(screen.getByText(/orders.pagination.previous/i)).toBeInTheDocument();
     expect(screen.getByText(/orders.pagination.next/i)).toBeInTheDocument();
+  });
+
+  it("shows please_print_first error when invoice is not printed and enable_payment_without_printing is not enabled", () => {
+    mockPosStore.posProfile = { name: "POS-001", enable_payment_without_printing: 0 };
+    mockRootStoreState.selectedOrder = {
+      name: "ACC-PSINV-0001",
+      status: "Unbilled",
+      invoice_printed: 0,
+      rounded_total: 100,
+    } as any;
+
+    render(<Orders />);
+
+    const paymentBtn = screen.getByRole("button", { name: "order.payment" });
+    fireEvent.click(paymentBtn);
+
+    expect(showToast.error).toHaveBeenCalledWith("errors.please_print_first");
+    expect(screen.queryByTestId("payment-dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens payment dialog when invoice is not printed but enable_payment_without_printing is enabled", () => {
+    mockPosStore.posProfile = { name: "POS-001", enable_payment_without_printing: 1 };
+    mockRootStoreState.selectedOrder = {
+      name: "ACC-PSINV-0001",
+      status: "Unbilled",
+      invoice_printed: 0,
+      rounded_total: 100,
+    } as any;
+
+    render(<Orders />);
+
+    const paymentBtn = screen.getByRole("button", { name: "order.payment" });
+    fireEvent.click(paymentBtn);
+
+    expect(showToast.error).not.toHaveBeenCalled();
+    expect(screen.getByTestId("payment-dialog")).toBeInTheDocument();
   });
 });

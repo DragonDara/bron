@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from frappe.utils import validate_phone_number
 
 from ury.ury.api.ury_customer_pricing import get_customer_price_menu
+from ury.ury_pos.default_customer import get_default_customer_config
 
 
 #GetTable  decripted temporarily
@@ -508,7 +509,7 @@ def getInvoiceForCashier(status, cashier, limit, limit_start):
     if status == "Draft":
         invoices = frappe.db.sql(
             """
-            SELECT 
+            SELECT
                 name, invoice_printed, grand_total, restaurant_table, custom_merged_tables,
                 cashier, waiter, custom_waiter_employee, net_total, posting_time,
                 total_taxes_and_charges, customer, status, mobile_number, 
@@ -528,7 +529,7 @@ def getInvoiceForCashier(status, cashier, limit, limit_start):
         docstatus = "Draft"
         invoices = frappe.db.sql(
             """
-            SELECT 
+            SELECT
                 name, invoice_printed, grand_total, restaurant_table, custom_merged_tables,
                 cashier, waiter, custom_waiter_employee, net_total, posting_time,
                 total_taxes_and_charges, customer, status, mobile_number, 
@@ -547,7 +548,7 @@ def getInvoiceForCashier(status, cashier, limit, limit_start):
         docstatus = "Paid"
         invoices = frappe.db.sql(
             """
-            SELECT 
+            SELECT
                 name, invoice_printed, grand_total, restaurant_table, custom_merged_tables,
                 cashier, waiter, custom_waiter_employee, net_total, posting_time,
                 total_taxes_and_charges, customer, status, mobile_number,
@@ -737,6 +738,7 @@ def searchPosInvoice(query,status):
             "net_total",
             "mobile_number",
             "invoice_printed",
+            "custom_printing_time",
             "cashier",
             "waiter",
             "custom_waiter_employee",
@@ -848,6 +850,9 @@ def getPosProfile():
         multiple_cashier = pos_profiles.custom_enable_multiple_cashier
         edit_order_type = pos_profiles.custom_edit_order_type
         enable_kot_reprint = pos_profiles.custom_enable_kot_reprint
+        invoice_warning_time = pos_profiles.custom_invoice_warning_time or 0
+        enable_payment_without_printing = pos_profiles.get("custom_enable_payment_without_printing") or 0
+        disable_print_status_tracking = getattr(pos_profiles, "custom_disable_print_status_tracking", 0)
         if multiple_cashier:
             details = getBranchRoom()
             room = details[0].get('name') 
@@ -910,6 +915,7 @@ def getPosProfile():
         "pos_profile": pos_profile_name,
         "branch": branch,
         "company": company,
+        "country": getattr(pos_profiles, "country", None) or frappe.db.get_value("Company", company, "country"),
         "waiter": waiter,
         "warehouse": warehouse,
         "cashier": cashier,
@@ -925,8 +931,11 @@ def getPosProfile():
         "multiple_cashier":multiple_cashier,
         "owner":owner,
         "edit_order_type":edit_order_type,
-        "enable_kot_reprint":enable_kot_reprint
-
+        "enable_kot_reprint":enable_kot_reprint,
+        "custom_invoice_warning_time":invoice_warning_time,
+        "enable_payment_without_printing":enable_payment_without_printing,
+        "custom_disable_print_status_tracking":disable_print_status_tracking,
+        **get_default_customer_config(pos_profiles),
     }
 
     return invoice_details
@@ -956,10 +965,10 @@ def getPosProfileFull(pos_profile):
         "idx": profile.idx,
         "company": profile.company,
         "customer": profile.customer,
-        "country": profile.country,
+        "country": profile.country or frappe.db.get_value("Company", profile.company, "country"),
         "disabled": profile.disabled,
         "warehouse": profile.warehouse,
-        "campaign": profile.campaign,
+        "campaign": profile.get("campaign"),
         "company_address": profile.company_address,
         "restaurant": profile.restaurant,
         "branch": profile.branch,
@@ -968,6 +977,7 @@ def getPosProfileFull(pos_profile):
         "role_allowed_for_billing": [row.as_dict() for row in profile.role_allowed_for_billing],
         "role_restricted_for_table_order": [row.as_dict() for row in profile.role_restricted_for_table_order],
         "transfer_role_permissions": [row.as_dict() for row in profile.transfer_role_permissions],
+        "role_masked_for_amounts": [row.as_dict() for row in (profile.get("role_masked_for_amounts") or [])],
         "view_all_status": profile.get("view_all_status"),
         "custom_daily_pos_close": profile.get("custom_daily_pos_close"),
         "custom_allow_order_without_customer": profile.get("custom_allow_order_without_customer"),
@@ -1094,8 +1104,46 @@ def getAggregatorMOP(aggregator):
             {"mode_of_payment": modeOfPayment, "opening_amount": float(0)}
     )
     return modeOfPaymentsList
+def validate_customer_mobile(mobile_number, country=None):
+    from frappe.geo.country_info import get_all
+    import phonenumbers
+
+    mobile_number = str(mobile_number or "").strip()
+    if not mobile_number:
+        frappe.throw(_("Mobile Number is required"))
+
+    # Also run standard validate_phone_number to preserve existing mock expectations
+    try:
+        validate_phone_number(mobile_number, throw=True)
+    except Exception:
+        frappe.throw(_("Invalid mobile number format"))
+
+    country_code = None
+    calling_code = None
+    if country:
+        all_info = get_all()
+        c_info = all_info.get(country) or {}
+        country_code = (c_info.get("code") or "").upper() or None
+        calling_code = c_info.get("isd")
+
+    clean_mobile = mobile_number.replace(" ", "")
+    if calling_code and clean_mobile in (calling_code, calling_code.lstrip("+")):
+        frappe.throw(_("Mobile Number is required"))
+
+    is_valid = False
+    try:
+        parsed = phonenumbers.parse(mobile_number, country_code)
+        is_valid = phonenumbers.is_valid_number(parsed)
+    except Exception:
+        is_valid = False
+
+    if not is_valid:
+        error_msg = _("Invalid mobile number {0} for {1}").format(mobile_number, country) if country else _("Invalid mobile number format")
+        frappe.throw(error_msg)
+
+
 @frappe.whitelist()
-def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory=None):
+def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory=None, pos_profile=None):
     if not frappe.has_permission("Customer", "create"):
         frappe.throw(_("Not permitted to create customers"), frappe.PermissionError)
 
@@ -1103,10 +1151,33 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
         frappe.throw(_("Customer name is required"))
     if not mobile_number:
         frappe.throw(_("Mobile Number is required"))
-    try:
-        validate_phone_number(mobile_number, throw=True)
-    except Exception:
-        frappe.throw(_("Invalid mobile number format"))
+
+    country = None
+    if pos_profile:
+        country = frappe.db.get_value("POS Profile", pos_profile, "country")
+        if not country:
+            company = frappe.db.get_value("POS Profile", pos_profile, "company")
+            if company:
+                country = frappe.db.get_value("Company", company, "country")
+
+    if not country:
+        try:
+            branch = getBranch()
+            if branch:
+                pos_profile_name = frappe.db.get_value("POS Profile", {"branch": branch}, "name")
+                if pos_profile_name:
+                    country = frappe.db.get_value("POS Profile", pos_profile_name, "country")
+                    if not country:
+                        company = frappe.db.get_value("POS Profile", pos_profile_name, "company")
+                        if company:
+                            country = frappe.db.get_value("Company", company, "country")
+        except Exception:
+            pass
+
+    if not country:
+        country = frappe.db.get_single_value("System Settings", "country")
+
+    validate_customer_mobile(mobile_number, country)
 
     """Create a new customer"""
     try:
@@ -1148,6 +1219,189 @@ def create_customer(customer_name, mobile_number=None, customer_group="Individua
             "status": "error",
             "message": str(e)
         }
+
+@frappe.whitelist()
+def get_customers_by_order_type(order_type=None, search=None, limit=20):
+    """
+    Get existing customers who have placed orders for a specific order type.
+    Returns recent customers for that order type, ordered by last order date.
+    If search is provided, filters customers by name/mobile/ID for the order type,
+    and also falls back to other registered customers in tabCustomer.
+    """
+    if not (frappe.has_permission("Customer", "read") or frappe.has_permission("POS Invoice", "read")):
+        frappe.throw(_("Not permitted to access customer data"), frappe.PermissionError)
+
+    try:
+        limit = int(limit)
+    except (ValueError, TypeError):
+        limit = 20
+    if limit <= 0:
+        limit = 20
+    if limit > 100:
+        limit = 100
+
+    search = (search or "").strip()
+    customers = []
+    seen_customer_names = set()
+
+    try:
+        if order_type:
+            clean_order_type = str(order_type).strip()
+            order_types = [clean_order_type]
+            condensed = clean_order_type.replace(" ", "")
+            if condensed and condensed not in order_types:
+                order_types.append(condensed)
+            if clean_order_type.lower() == "takeaway" and "Take Away" not in order_types:
+                order_types.append("Take Away")
+            elif clean_order_type.lower() == "take away" and "Takeaway" not in order_types:
+                order_types.append("Takeaway")
+
+            search_condition = ""
+            params = {
+                "order_types": tuple(order_types),
+                "limit": limit
+            }
+
+            if search:
+                search_condition = """
+                    AND (
+                        inv.customer LIKE %(like_search)s
+                        OR inv.customer_name LIKE %(like_search)s
+                        OR inv.mobile_number LIKE %(like_search)s
+                        OR c.customer_name LIKE %(like_search)s
+                        OR c.mobile_number LIKE %(like_search)s
+                    )
+                """
+                params["like_search"] = f"%{search}%"
+
+            query = f"""
+                SELECT
+                    inv.customer AS name,
+                    COALESCE(NULLIF(c.customer_name, ''), NULLIF(inv.customer_name, ''), inv.customer) AS customer_name,
+                    COALESCE(NULLIF(c.mobile_number, ''), NULLIF(inv.mobile_number, ''), '') AS mobile_number,
+                    MAX(inv.modified) AS last_order_date
+                FROM `tabPOS Invoice` inv
+                LEFT JOIN `tabCustomer` c ON c.name = inv.customer
+                WHERE inv.docstatus < 2
+                  AND inv.customer IS NOT NULL AND inv.customer != ''
+                  AND (c.disabled IS NULL OR c.disabled = 0)
+                  AND inv.order_type IN %(order_types)s
+                  {search_condition}
+                GROUP BY inv.customer
+                ORDER BY last_order_date DESC
+                LIMIT %(limit)s
+            """
+            rows = frappe.db.sql(query, params, as_dict=True) or []
+
+            for row in rows:
+                cust_name = row.get("name")
+                if cust_name and cust_name not in seen_customer_names:
+                    seen_customer_names.add(cust_name)
+                    c_name = row.get("customer_name") or cust_name
+                    phone = row.get("mobile_number") or ""
+                    customers.append({
+                        "name": cust_name,
+                        "customer_name": c_name,
+                        "mobile_number": phone,
+                        "content": f"Customer Name : {c_name} | Mobile Number : {phone}",
+                        "is_order_type_match": True,
+                        "order_type": clean_order_type,
+                    })
+
+        # If search was provided and we haven't reached the limit, search remaining from tabCustomer
+        remaining_limit = limit - len(customers)
+        if search and remaining_limit > 0:
+            customer_params = {
+                "like_search": f"%{search}%",
+                "limit": remaining_limit
+            }
+            not_in_cond = ""
+            if seen_customer_names:
+                not_in_cond = "AND name NOT IN %(seen_names)s"
+                customer_params["seen_names"] = tuple(seen_customer_names)
+
+            customer_query = f"""
+                SELECT
+                    name,
+                    customer_name,
+                    mobile_number
+                FROM `tabCustomer`
+                WHERE (disabled IS NULL OR disabled = 0)
+                  AND (
+                      name LIKE %(like_search)s
+                      OR customer_name LIKE %(like_search)s
+                      OR mobile_number LIKE %(like_search)s
+                  )
+                  {not_in_cond}
+                ORDER BY modified DESC
+                LIMIT %(limit)s
+            """
+            fallback_rows = frappe.db.sql(customer_query, customer_params, as_dict=True) or []
+            for row in fallback_rows:
+                cust_name = row.get("name")
+                if cust_name and cust_name not in seen_customer_names:
+                    seen_customer_names.add(cust_name)
+                    c_name = row.get("customer_name") or cust_name
+                    phone = row.get("mobile_number") or ""
+                    customers.append({
+                        "name": cust_name,
+                        "customer_name": c_name,
+                        "mobile_number": phone,
+                        "content": f"Customer Name : {c_name} | Mobile Number : {phone}",
+                        "is_order_type_match": False,
+                        "order_type": order_type,
+                    })
+
+        # If neither order_type nor search was provided (or order_type had 0 invoices and no search),
+        # fallback to recent POS Invoice customers across any order type
+        if not customers and not search and not order_type:
+            recent_rows = frappe.db.sql(
+                """
+                SELECT
+                    inv.customer AS name,
+                    COALESCE(NULLIF(c.customer_name, ''), NULLIF(inv.customer_name, ''), inv.customer) AS customer_name,
+                    COALESCE(NULLIF(c.mobile_number, ''), NULLIF(inv.mobile_number, ''), '') AS mobile_number,
+                    MAX(inv.modified) AS last_order_date
+                FROM `tabPOS Invoice` inv
+                LEFT JOIN `tabCustomer` c ON c.name = inv.customer
+                WHERE inv.docstatus < 2
+                  AND inv.customer IS NOT NULL AND inv.customer != ''
+                  AND (c.disabled IS NULL OR c.disabled = 0)
+                GROUP BY inv.customer
+                ORDER BY last_order_date DESC
+                LIMIT %s
+                """,
+                (limit,),
+                as_dict=True
+            ) or []
+            for row in recent_rows:
+                cust_name = row.get("name")
+                if cust_name and cust_name not in seen_customer_names:
+                    seen_customer_names.add(cust_name)
+                    c_name = row.get("customer_name") or cust_name
+                    phone = row.get("mobile_number") or ""
+                    customers.append({
+                        "name": cust_name,
+                        "customer_name": c_name,
+                        "mobile_number": phone,
+                        "content": f"Customer Name : {c_name} | Mobile Number : {phone}",
+                        "is_order_type_match": False,
+                        "order_type": None,
+                    })
+
+        return {
+            "status": "success",
+            "data": customers
+        }
+    except Exception as e:
+        frappe.log_error(title="Failed to fetch customers by order type", message=frappe.get_traceback())
+        return {
+            "status": "error",
+            "message": str(e),
+            "data": []
+        }
+
+
 
 @frappe.whitelist()
 def get_open_pos_opening_entries(pos_profile):
@@ -1589,11 +1843,6 @@ _ROLE_RANK_TOKENS = (
 
 ROLE_RANK_LABELS = {0: "Restaurant Manager", 1: "Cashier", 2: "Order Taker"}
 
-# The shift open/close event (POS Opening/Closing Entry creation) sits at the
-# Cashier step of each sequence: opening requires earlier ranks (RM), closing
-# requires earlier-in-closing ranks (Order Taker).
-POS_EVENT_ROLE_RANK = 1
-
 
 def _role_rank(role):
     name = (role or "").lower()
@@ -1622,21 +1871,45 @@ def _phase_dependent_rows(pos_profile, checklist_type):
     return [row for row in rows if row.select_2 in mapped_options]
 
 
-def _goal_review_passed(goal, branch, period_date):
-    """True when any user's review for this goal/branch/day is fully Passed.
-    ERPNext derives the review's doc status from its rows, so status
-    "Passed" is exactly the all-rows-Passed condition. A recorded failure
-    never unlocks the next role."""
+def _goal_submitted(goal, branch, period_date, owner=None):
+    """True when the goal's checklist has been SUBMITTED for this
+    branch/business day: a review exists whose objectives all carry an
+    explicit result. PASS and FAIL are both valid responses -- a failed
+    objective records the failure but never blocks submission or the role
+    hierarchy."""
+    filters = {"goal": goal, "branch": branch, "date": period_date}
+    if owner:
+        filters["owner"] = owner
     return bool(
         frappe.db.exists(
             "Quality Review",
-            {"goal": goal, "branch": branch, "date": period_date, "status": "Passed"},
+            {**filters, "status": ["in", ["Passed", "Failed"]]},
+        )
+    )
+
+
+def _goal_submitted_since(goal, branch, since):
+    """True when a submitted checklist (any PASS/FAIL mix) exists created at
+    or after `since` -- the closing flow anchors on the shift period start."""
+    return bool(
+        frappe.get_all(
+            "Quality Review",
+            filters={
+                "goal": goal,
+                "branch": branch,
+                "creation": [">=", since],
+                "status": ["in", ["Passed", "Failed"]],
+            },
+            pluck="name",
+            limit=1,
         )
     )
 
 
 def _checklist_blocker(rows, checklist_type, branch, period_date, user_roles):
-    """Earliest role in the phase sequence whose goals are not all Passed.
+    """Earliest role in the phase sequence whose checklists are not all
+    SUBMITTED (a submitted checklist may contain FAIL objectives -- that is
+    a valid response, not a blocker).
 
     Opening runs ascending rank (RM -> Cashier -> Order Taker); Closing runs
     descending (Order Taker -> Cashier -> RM). A user acts at their lowest
@@ -1669,15 +1942,15 @@ def _checklist_blocker(rows, checklist_type, branch, period_date, user_roles):
 
     for rank in predecessors:
         for role, goals in ranked[rank].items():
-            incomplete = [
-                goal for goal in goals if not _goal_review_passed(goal, branch, period_date)
+            unsubmitted = [
+                goal for goal in goals if not _goal_submitted(goal, branch, period_date)
             ]
-            if incomplete:
+            if unsubmitted:
                 return {
                     "role": role,
                     "role_label": _role_label(role),
                     "rank": rank,
-                    "goals": incomplete,
+                    "goals": unsubmitted,
                 }
     return None
 
@@ -1754,27 +2027,11 @@ def _throw_blocked(blocked_by, checklist_type):
     )
 
 
-def _goal_review_passed_since(goal, branch, since):
-    """True when a fully-Passed review exists created at/after `since`
-    (the closing flow anchors on the shift's period start)."""
-    for name in frappe.get_all(
-        "Quality Review",
-        filters={"goal": goal, "branch": branch, "creation": [">=", since]},
-        pluck="name",
-    ):
-        if frappe.get_doc("Quality Review", name).status == "Passed":
-            return True
-    return False
-
-
 def _goal_review_pending(goal, branch, period_date):
-    """A goal is done for THIS user only when their review exists and every
-    objective is Passed -- a recorded failure stays pending so the user must
-    resolve and re-submit it."""
-    review = _existing_goal_review(goal, branch, period_date)
-    if not review:
-        return True
-    return any(row.status != "Passed" for row in review.reviews or [])
+    """A goal is pending for THIS user until they have SUBMITTED its
+    checklist. PASS and FAIL both count as submitted; only objectives with
+    no explicit result keep the goal pending."""
+    return not _goal_submitted(goal, branch, period_date, owner=frappe.session.user)
 
 
 def _item_status(state):
@@ -1868,7 +2125,8 @@ def get_checklist(pos_profile, checklist_type):
     # Role-based sequence (grillax port): Opening runs RM -> Cashier ->
     # Order Taker, Closing the reverse. The gate stays closed -- with a
     # specific blocker message -- until every role before the user's step has
-    # a fully-Passed checklist for this branch/business day.
+    # SUBMITTED its checklist for this branch/business day (any PASS/FAIL
+    # mix; submission, not passing, is what unlocks the next role).
     branch = getBranch()
     rows = _phase_dependent_rows(pos_profile, checklist_type)
     user_roles = frappe.get_roles()
@@ -1889,6 +2147,8 @@ def get_checklist(pos_profile, checklist_type):
     goal_items = []
     pending_goals = []
     for goal in goals:
+        if _goal_review_pending(goal, branch, period_date):
+            pending_goals.append(goal)
         review = _existing_goal_review(goal, branch, period_date)
         states = (
             {row.objective: row for row in review.reviews or []} if review else {}
@@ -1897,7 +2157,6 @@ def get_checklist(pos_profile, checklist_type):
         if not objectives:
             # Goal without configured objectives: the goal name is the item.
             if not review:
-                pending_goals.append(goal)
                 goal_items.append(
                     {
                         "item_label": goal,
@@ -1909,15 +2168,13 @@ def get_checklist(pos_profile, checklist_type):
                     }
                 )
             continue
-        # An objective is answered once its review row is Passed. Unanswered
-        # and Failed rows keep the goal pending (a failure must be resolved
-        # and re-submitted), so both resurface prefilled with their last
-        # result -- a fully-Passed goal stays hidden and completes the gate.
+        # Only objectives with NO explicit result resurface. FAIL is a valid
+        # final response: it is recorded on the review and must not keep the
+        # item (or the user) in the gate.
         remaining = [
-            o for o in objectives if states.get(o) is None or states[o].status != "Passed"
+            o for o in objectives if states.get(o) is None or states[o].status == "Open"
         ]
         if remaining:
-            pending_goals.append(goal)
             goal_items += [
                 {
                     "item_label": o,
@@ -2080,6 +2337,17 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
         limit=1,
     )
 
+    def _goal_submission_status():
+        """Incomplete only while some objective still has no explicit result.
+        A submitted checklist -- any PASS/FAIL mix -- is Complete and closes
+        the gate; the role hierarchy likewise only requires submission."""
+        if any(
+            not _goal_submitted(goal, branch, period_date, owner=frappe.session.user)
+            for goal in goals
+        ):
+            return "In Progress"
+        return None
+
     if not configured_items:
         # No legacy items: completion is driven purely by Quality Reviews.
         if existing_log:
@@ -2087,11 +2355,8 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
                 "status": existing_log[0].status,
                 "name": existing_log[0].name,
             }
-        goals_pending = any(
-            _goal_review_pending(goal, branch, period_date) for goal in goals
-        )
         return {
-            "status": "In Progress" if goals_pending else "Complete",
+            "status": _goal_submission_status() or "Complete",
             "name": None,
         }
 
@@ -2141,6 +2406,9 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
     )
 
     if all_mandatory_answered:
+        # PASS and FAIL are both valid responses: once every mandatory item
+        # has a result the checklist is Complete (submitted). Individual
+        # failures stay recorded on the rows for reporting.
         log_doc.status = "Complete"
         log_doc.completed_by = frappe.session.user
         log_doc.completed_at = frappe.utils.now()
@@ -2149,13 +2417,12 @@ def submit_checklist(pos_profile, checklist_type, items, pos_opening_entry=None)
 
     log_doc.save()
 
-    # A complete legacy log does not override still-pending Quality Reviews.
-    goals_pending = any(
-        _goal_review_pending(goal, branch, period_date) for goal in goals
-    )
-    if goals_pending:
+    # Role-based goal states take precedence: pending/failed goals keep the
+    # submission below Complete regardless of the legacy log status.
+    goal_status = _goal_submission_status()
+    if goal_status:
         return {
-            "status": "In Progress",
+            "status": goal_status,
             "name": log_doc.name,
         }
 
@@ -2332,3 +2599,12 @@ def ensure_payment_mode_accounts(modes, company):
         _ensure_mode_of_payment(mode, company)
         ensured.append(mode)
     return ensured
+
+
+@frappe.whitelist(allow_guest=False)
+def is_printer_watch_installed() -> dict:
+    try:
+        installed = "ury_printer_watch" in frappe.get_installed_apps()
+    except Exception:
+        installed = False
+    return {"installed": bool(installed)}

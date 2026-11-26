@@ -2,6 +2,9 @@ export const DEFAULT_LANGUAGE = 'en';
 
 export const SUPPORTED_LANGUAGES: Record<string, string> = {
   en: 'English',
+  es: 'Español',
+  fr: 'Français',
+  ar: 'العربية',
   ru: 'Русский',
   kk: 'Қазақша',
 };

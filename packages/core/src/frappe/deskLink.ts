@@ -31,6 +31,9 @@ export const DESK_RETURN_PARAM = 'ury_return_to';
 /** Query param carrying the display name of the originating app. */
 export const DESK_RETURN_LABEL_PARAM = 'ury_return_label';
 
+/** Session storage key used to persist the return context across desk page switches. */
+export const DESK_RETURN_STORAGE_KEY = 'ury:desk_return_to';
+
 /**
  * Path prefixes that a `ury_return_to` value is allowed to point at.
  *
@@ -106,7 +109,7 @@ export interface BuildDeskUrlOptions {
  * carrying the return context that `return_to_app.js` turns into a floating
  * "Back to <App>" chip.
  *
- * @example buildDeskUrl('URY Issue Wastage', 'WST-0001')
+ * @example buildDeskUrl('URY Wastage', 'WST-0001')
  *          // '/app/ury-issue-wastage/WST-0001?ury_return_to=%2Fury%2Fwastage&ury_return_label=URY'
  */
 export const buildDeskUrl = (

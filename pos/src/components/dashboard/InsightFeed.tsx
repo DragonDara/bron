@@ -55,7 +55,7 @@ export default function InsightFeed({ branch }: InsightFeedProps) {
             // Not a manager — hide the card entirely rather than showing an error.
             setHidden(true);
           } else {
-            setError('Failed to load insights');
+            setError(t('dash_cards.insights_failed'));
             console.error('Error fetching insights:', err);
           }
         }
@@ -115,7 +115,7 @@ export default function InsightFeed({ branch }: InsightFeedProps) {
             {insights.map((insight) => (
               <div
                 key={insight.name}
-                className={`flex items-start gap-3 rounded border-l-4 bg-gray-50 p-3 ${RAIL_CLASS[insight.severity] ?? RAIL_CLASS.Info}`}
+                className={`flex items-start gap-3 rounded border-s-4 bg-gray-50 p-3 ${RAIL_CLASS[insight.severity] ?? RAIL_CLASS.Info}`}
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-900">{insight.title}</p>

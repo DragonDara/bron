@@ -1,9 +1,22 @@
 import frappe
-from frappe.utils.print_format import print_by_server
+from frappe.utils import flt
 
 WAITER_PRINT_FORMAT = "URY Waiter Order Slip"
 ADD_KOT_TYPES = ("New Order", "Order Modified")
 CANCEL_KOT_TYPES = ("Partially cancelled", "Cancelled")
+
+
+def _normalize_qty(value):
+	"""Return value as a quantity rounded to the field precision for display.
+
+	Whole quantities come back as int so slips keep printing "2", not "2.0".
+	Rounding removes float subtraction residue such as 5.5e-17. The precision
+	is the one Frappe resolves for the field (site float_precision default).
+	"""
+	qty = flt(value, frappe.get_precision("URY KOT Items", "quantity"))
+	if qty == int(qty):
+		return int(qty)
+	return qty
 
 
 def _get_room_waiter_printers(room):
@@ -37,8 +50,8 @@ def _aggregate_kot_items(kot_docs):
 					cancel_items[key] = {
 					"item": row.item,
 					"item_name": row.item_name,
-					"quantity": int(row.quantity or 0),
-					"cancelled_qty": int(row.cancelled_qty or 0),
+					"quantity": _normalize_qty(row.quantity),
+					"cancelled_qty": _normalize_qty(row.cancelled_qty),
 					"comments": row.comments,
 					"course": row.course,
 					}
@@ -47,12 +60,14 @@ def _aggregate_kot_items(kot_docs):
 					add_items[key] = {
 					"item": row.item,
 					"item_name": row.item_name,
-					"quantity": int(row.quantity or 0),
+					"quantity": _normalize_qty(row.quantity),
 					"comments": row.comments,
 					"course": row.course,
 					}
 				else:
-					add_items[key]["quantity"] += int(row.quantity or 0)
+					add_items[key]["quantity"] = _normalize_qty(
+						add_items[key]["quantity"] + flt(row.quantity)
+					)
 
 	return list(add_items.values()) + list(cancel_items.values())
 
@@ -68,7 +83,7 @@ def _get_invoice_item_qty_map(invoice_id):
 		fields=["item_code", "qty", "comment"],
 	):
 		key = (row["item_code"], row.get("comment") or "")
-		qty_map[key] = int(row.get("qty") or 0)
+		qty_map[key] = _normalize_qty(row.get("qty"))
 
 	return qty_map
 
@@ -82,16 +97,16 @@ def _enrich_item_display_fields(items, invoice_id):
 		key = (item["item"], item.get("comments") or "")
 
 		if item.get("cancelled_qty"):
-			old_qty = int(item.get("quantity") or 0)
-			cancelled_qty = int(item.get("cancelled_qty") or 0)
-			new_qty = max(old_qty - cancelled_qty, 0)
+			old_qty = _normalize_qty(item.get("quantity"))
+			cancelled_qty = _normalize_qty(item.get("cancelled_qty"))
+			new_qty = _normalize_qty(max(old_qty - cancelled_qty, 0))
 			item["display_mode"] = "old_new"
 			item["old_qty"] = old_qty
 			item["new_qty"] = new_qty
 		else:
-			delta_qty = int(item.get("quantity") or 0)
+			delta_qty = _normalize_qty(item.get("quantity"))
 			new_qty = invoice_qty_map.get(key, delta_qty)
-			old_qty = new_qty - delta_qty
+			old_qty = _normalize_qty(new_qty - delta_qty)
 
 			if old_qty <= 0:
 				item["display_mode"] = "single_qty"
@@ -155,6 +170,24 @@ def _validate_waiter_print_format(waiter_print_format, room, printer):
 	return True
 
 
+def print_by_server(doctype, name, printer_setting, print_format=None, doc=None, no_letterhead=0, **kwargs):
+	printer_doc = frappe.get_doc("Network Printer Settings", printer_setting)
+	extra_metadata = dict(kwargs.get("extra_metadata") or {})
+	if doc and getattr(doc, "invoice", None):
+		extra_metadata.setdefault("invoice", getattr(doc, "invoice", None))
+	if doc and getattr(doc, "restaurant_table", None):
+		extra_metadata.setdefault("restaurant_table", getattr(doc, "restaurant_table", None))
+	return printer_doc.print_doc(
+		doctype=doctype,
+		name=name,
+		print_format=print_format,
+		doc=doc,
+		no_letterhead=no_letterhead,
+		job_type=kwargs.get("job_type", "WAITER_SLIP"),
+		extra_metadata=extra_metadata,
+	)
+
+
 def print_combined_waiter_order_slip(invoice_id, kot_names, restaurant_table):
 	"""Print one combined waiter slip for all delta KOTs created in an order update."""
 	if not invoice_id or not kot_names:
@@ -174,6 +207,7 @@ def print_combined_waiter_order_slip(invoice_id, kot_names, restaurant_table):
 	combined_doc = build_combined_kot_doc(kot_names)
 	if not combined_doc or not combined_doc.kot_items:
 		return
+	combined_doc.restaurant_table = restaurant_table
 
 	for printer_row in waiter_printers:
 		waiter_print_format = printer_row.custom_waiter_print_format

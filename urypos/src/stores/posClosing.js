@@ -101,11 +101,20 @@ export const posClosing = defineStore("posClose", {
       };
       this.call
         .get(
-          "erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_pos_invoices",
+          "erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_invoices",
           PosOpenEntry
         )
         .then((result) => {
-          this.invoiceDetails = result.message;
+          let msg = result.message;
+          if (msg && msg.invoices && !Array.isArray(msg)) {
+            let invMap = {};
+            msg.invoices.forEach(i => { i.payments = []; i.taxes = []; invMap[i.name] = i; });
+            if (msg.payments) msg.payments.forEach(p => { if (invMap[p.parent]) invMap[p.parent].payments.push(p); });
+            if (msg.taxes) msg.taxes.forEach(t => { if (invMap[t.parent]) invMap[t.parent].taxes.push(t); });
+            this.invoiceDetails = msg.invoices;
+          } else {
+            this.invoiceDetails = msg || [];
+          }
           let paymentAggregated = {};
           this.invoiceDetails.forEach((payment) => {
             this.grandTotal += parseFloat(payment.grand_total);
@@ -138,6 +147,19 @@ export const posClosing = defineStore("posClose", {
                 item.amount;
             });
           });
+          // ERPNext v16 get_invoices pre-aggregates payments by
+          // mode_of_payment with change_amount already deducted server-side;
+          // per-invoice payment rows carry no parent link, so prefer the
+          // server aggregates when present instead of dropping them.
+          if (msg && !Array.isArray(msg) && Array.isArray(msg.payments) && msg.payments.length > 0) {
+            paymentAggregated = {};
+            msg.payments.forEach((item) => {
+              paymentAggregated[item.mode_of_payment] = {
+                expected_amount: parseFloat(item.amount) || 0,
+                mode_of_payment: item.mode_of_payment,
+              };
+            });
+          }
           this.payments = Object.values(paymentAggregated);
 
           this.posInvoice = this.invoiceDetails.map((item) => ({
@@ -205,6 +227,13 @@ export const posClosing = defineStore("posClose", {
             const messages = JSON.parse(error._server_messages);
             const message = JSON.parse(messages[0]);
             this.alert.createAlert("Message",message.message, "OK")
+          } else if (error.exception) {
+            // Uncaught server exceptions (e.g. NegativeStockError on submit)
+            // carry no _server_messages; surface the exception detail instead
+            // of swallowing the failure silently.
+            const idx = error.exception.indexOf(":");
+            const detail = idx === -1 ? error.exception : error.exception.slice(idx + 1).trim();
+            this.alert.createAlert("Message", detail, "OK")
           }
         });
     },
@@ -239,7 +268,11 @@ export const posClosing = defineStore("posClose", {
             const messages = JSON.parse(error._server_messages);
             const message = JSON.parse(messages[0]);
             this.alert.createAlert("Message",message.message, "OK")
-            
+
+          } else if (error.exception) {
+            const idx = error.exception.indexOf(":");
+            const detail = idx === -1 ? error.exception : error.exception.slice(idx + 1).trim();
+            this.alert.createAlert("Message", detail, "OK")
           }
         });
     },

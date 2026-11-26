@@ -9,19 +9,19 @@
       <div class="flex items-center justify-center">
         <div class="w-full rounded-lg p-6 md:max-w-md" style="background: var(--panel); border: 1px solid var(--hair); box-shadow: 0 8px 30px rgba(0,0,0,.12)">
           <p
-            class="block text-left text-xl font-medium"
+            class="block text-start text-xl font-medium"
             style="color: var(--t1)"
           >
             <span
-              class="w-3 h-3 rounded-full inline-block mr-1"
+              class="w-3 h-3 rounded-full inline-block me-1"
               style="background: var(--rd)"
             ></span>
-            Not Permitted
+            {{ __("Not Permitted") }}
           </p>
           <hr style="border-color: var(--hair)" />
 
-          <p class="text-left text-xl mt-6 font-medium" style="color: var(--t2)">
-            Log in to access this page.
+          <p class="text-start text-xl mt-6 font-medium" style="color: var(--t2)">
+            {{ __("Log in to access this page.") }}
           </p>
 
           <div class="flex justify">
@@ -33,7 +33,7 @@
               class="mt-8 rounded px-3 py-2"
               style="background: var(--ac); color: #fff"
             >
-              Login
+              {{ __("Login") }}
             </button>
           </div>
         </div>
@@ -42,7 +42,7 @@
     <!-- Alert Modal div end-->
 
     <div v-if="kot.filter(k => k.production === production).length === 0 && !loadingKots" class="text-center py-10 text-xl" style="color: var(--t3)">
-      No active orders for {{ production }}
+      {{ __("No active orders for {0}", production) }}
     </div>
 
     <div
@@ -74,8 +74,8 @@
               >
                 {{
                   kot.type === "Cancelled" || kot.type === "Partially cancelled"
-                    ? "Confirm"
-                    : "Serve"
+                    ? __("Confirm")
+                    : __("Serve")
                 }}
               </button>
             </div>
@@ -84,47 +84,47 @@
               <!-- Serve Button -->
 
               <!-- Card Header: Table Name and Order Number -->
-              <div class="flex justify-between" @click="rotateCard(kot)">
-                <div class="text-sm w-48" style="font-family: var(--s)">
+              <div class="flex justify-between items-start gap-2" @click="rotateCard(kot)">
+                <div class="text-sm flex-1 min-w-0" style="font-family: var(--s)">
                   <span
                     v-if="kot.tableortakeaway !== 'Takeaway'"
                     class="text-sm font-medium"
                     style="color: var(--t2)"
-                    >Table
+                    >{{ __("Table") }}
                   </span>
                   <span class="font-semibold" style="color: var(--t1)">
-                    {{ kot.tableortakeaway }}
+                    {{ kot.tableortakeaway === "Takeaway" ? __("Takeaway") : kot.tableortakeaway }}
                     <span class="text-sm font-medium" style="color: var(--t2)"
                       >( {{ kot.user }} )</span
                     ></span
                   ><br />
-                  <span v-if="kot.is_aggregator" class="text-sm font-medium" style="color: var(--t2)">Aggregator</span>
-                  <span v-if="kot.is_aggregator" class="ml-2 font-semibold" style="color: var(--t1)"
+                  <span v-if="kot.is_aggregator" class="text-sm font-medium" style="color: var(--t2)">{{ __("Aggregator") }}</span>
+                  <span v-if="kot.is_aggregator" class="ms-2 font-semibold" style="color: var(--t1)"
                     >{{ kot.customer_name }}
                   </span><br v-if="kot.is_aggregator" />
-                  <span v-if="kot.is_aggregator" class="text-sm font-medium" style="color: var(--t2)">Aggregator ID</span>
-                  <span v-if="kot.is_aggregator" class="ml-2 font-semibold" style="color: var(--t1)"
+                  <span v-if="kot.is_aggregator" class="text-sm font-medium" style="color: var(--t2)">{{ __("Aggregator ID") }}</span>
+                  <span v-if="kot.is_aggregator" class="ms-2 font-semibold" style="color: var(--t1)"
                     >{{ kot.aggregator_id }}
                   </span><br v-if="kot.is_aggregator"/>
-                  <span class="text-sm font-medium" style="color: var(--t2)">Order</span>
-                  <span class="ml-2 font-semibold" style="color: var(--t1); font-family: var(--m)"
+                  <span class="text-sm font-medium" style="color: var(--t2)">{{ __("Order") }}</span>
+                  <span class="ms-2 font-semibold" style="color: var(--t1); font-family: var(--m)"
                     >{{ this.daily_order_number ? kot.order_no : kot.invoice.slice(-4) }}
 
                   </span>
                   <span
-                    class="ml-2 font-semibold"
+                    class="ms-2 font-semibold"
                     style="color: var(--t1)"
                     v-if="
                       kot.type === 'Partially cancelled' ||
                       kot.type === 'Cancelled'
                     "
                   >
-                    ( {{ kot.type }} )</span
+                    ( {{ __(kot.type) }} )</span
                   >
                 </div>
                 <div
                   :class="kot.timecolor"
-                  class="font-semibold text-2xl leading-10"
+                  dir="ltr" class="font-semibold text-2xl leading-8 whitespace-nowrap shrink-0 ms-2"
                   style="font-family: var(--m); font-variant-numeric: tabular-nums"
                 >
                   {{ kot.timeRemaining }}
@@ -135,7 +135,7 @@
                 class="font-medium"
                 style="color: var(--rd); font-family: var(--s)"
               >
-                ( Duplicate KOT ( CHECK WITH CAPTAIN ) )
+                ( {{ __("Duplicate KOT ( CHECK WITH CAPTAIN )") }} )
               </div>
               <div v-show="kot.comments" class="font-medium" style="color: var(--t2); font-family: var(--s)">
                 ( {{ kot.comments }} )
@@ -161,28 +161,34 @@
                     class="flex font-semibold justify-between items-center"
                   >
                     <div>
-                      <span class="ml-2">{{
+                      <span class="ms-2">{{
                         kotitem.item_name
-                      }}<span v-show="kotitem.indicate_course" class="text-sm ml-1" style="color: var(--t3)"> ( {{kotitem.course}} )</span>
+                      }}<span v-show="kotitem.indicate_course" class="text-sm ms-1" style="color: var(--t3)"> ( {{kotitem.course}} )</span>
                       </span
                       ><br />
                       <span
-                        class="ml-2"
+                        class="ms-2"
                         v-if="
                           kot.type === 'Partially cancelled' ||
                           kot.type === 'Cancelled'
                         "
-                        >[Old Qty = {{ kotitem.quantity }}]</span
+                        >[{{ __("Old Qty = {0}", kotitem.quantity) }}]</span
                       >
                     </div>
                     <div>
-                      <span class="ml-2" style="font-family: var(--m); font-variant-numeric: tabular-nums">{{ kotitem.qty }}</span>
+                      <span
+                        data-testid="kot-item-status"
+                        class="ms-2 px-1.5 py-0.5 rounded text-xs font-semibold"
+                        :style="itemStatusStyle(kotitem.state)"
+                        >{{ itemStatusLabel(kotitem.state) }}</span
+                      >
+                      <span dir="ltr" class="ms-2 inline-block" style="font-family: var(--m); font-variant-numeric: tabular-nums">{{ kotitem.qty }}</span>
                     </div>
                   </div>
                   <div>
                     <p
                       v-show="kotitem.comments"
-                      class="ml-2 font-medium"
+                      class="ms-2 font-medium"
                       style="color: var(--t2)"
                     >
                       {{ kotitem.comments }}
@@ -190,31 +196,31 @@
                     <!-- Cancellation disposition: return-to-stock vs waste -->
                     <div
                       v-if="Number(kotitem.cancelled_qty) > 0 && (!kotitem.disposition || kotitem.disposition === 'Pending')"
-                      class="ml-2 mt-1 flex gap-2"
+                      class="ms-2 mt-1 flex gap-2"
                       @click.stop
                     >
-                      <span class="text-sm font-medium" style="color: var(--t2)">Disposition:</span>
+                      <span class="text-sm font-medium" style="color: var(--t2)">{{ __("Disposition:") }}</span>
                       <button
                         @click="resolveDisposition(kot, kotitem, 'return_to_stock')"
                         class="px-2 py-1 rounded text-xs font-semibold"
                         style="background: var(--gr); color: #fff"
                       >
-                        Return to Stock
+                        {{ __("Return to Stock") }}
                       </button>
                       <button
                         @click="resolveDisposition(kot, kotitem, 'waste')"
                         class="px-2 py-1 rounded text-xs font-semibold"
                         style="background: var(--rd); color: #fff"
                       >
-                        Mark as Wasted
+                        {{ __("Mark as Wasted") }}
                       </button>
                     </div>
                     <div
                       v-else-if="kotitem.disposition && kotitem.disposition !== 'Pending'"
-                      class="ml-2 mt-1 text-sm font-medium"
+                      class="ms-2 mt-1 text-sm font-medium"
                       style="color: var(--t2)"
                     >
-                      ( Disposition: {{ kotitem.disposition }} )
+                      ( {{ __("Disposition: {0}", __(kotitem.disposition)) }} )
                     </div>
                     <hr class="my-1 mt-2" style="border-color: var(--hair)" />
                   </div>
@@ -233,13 +239,13 @@
       class="absolute top-1 left-1/2 transform -translate-x-1/2 p-2 font-bold text-2xl text-center"
       style="color: var(--rd)"
     >
-      Audio notifications disabled. Click anywhere to enable.
+      {{ __("Audio notifications disabled. Click anywhere to enable.") }}
     </div>
 
     <!-- KOT Delay Error Alert Banner -->
     <div
       v-if="showKotErrorAlert && kotErrorAlert"
-      class="fixed top-0 left-0 right-0 mx-auto p-4 z-40 flex justify-between items-center"
+      class="fixed top-0 inset-x-0 mx-auto p-4 z-40 flex justify-between items-center"
       style="background: var(--rd-t); border-bottom: 3px solid var(--rd)"
     >
       <div class="flex items-center gap-3">
@@ -247,17 +253,17 @@
           <span class="text-3xl">⚠️</span>
         </div>
         <div class="flex-1">
-          <p class="font-bold" style="color: var(--rd)">Order Delayed</p>
+          <p class="font-bold" style="color: var(--rd)">{{ __("Order Delayed") }}</p>
           <p class="text-sm mt-1" style="color: var(--rd)">
-            <span v-if="!daily_order_number">Invoice: {{ kotErrorAlert.invoice.slice(-4) }}</span>
-            <span v-else>Order #: {{ kotErrorAlert.order_no }}</span>
-            | Table: {{ kotErrorAlert.tableortakeaway }} | Time: {{ kotErrorAlert.timestamp }}
+            <span v-if="!daily_order_number">{{ __("Invoice: {0}", kotErrorAlert.invoice.slice(-4)) }}</span>
+            <span v-else>{{ __("Order #: {0}", kotErrorAlert.order_no) }}</span>
+            | {{ __("Table: {0}", kotErrorAlert.tableortakeaway) }} | {{ __("Time: {0}", kotErrorAlert.timestamp) }}
           </p>
         </div>
       </div>
       <button
         @click="hideKotErrorAlert"
-        class="ml-4 font-bold text-xl flex-shrink-0"
+        class="ms-4 font-bold text-xl flex-shrink-0"
         style="color: var(--rd)"
       >
         ✕
@@ -269,7 +275,7 @@
       :class="[
         'fixed',
         'bottom-10',
-        'right-10',
+        'end-10',
         'p-4',
         'rounded',
         'text-white',
@@ -289,12 +295,20 @@
 import { FrappeApp } from "frappe-js-sdk";
 import Masonry from "masonry-layout";
 import io from "socket.io-client";
+import { t, isRTL } from "../i18n";
 
 let host = window.location.hostname;
 let port = window.location.port;
 let protocol = window.location.protocol;
 let url = port ? `${protocol}//${host}:${port}` : `${protocol}//${host}`;
 window.globalSiteName = '';
+// Same semantics as POS badges: queued=red, preparing=amber, ready=info(blue), served=green.
+const ITEM_STATUS = {
+  QUEUED: { label: "Queued", bg: "var(--rd-t)", fg: "var(--rd)", bd: "var(--rd-b)" },
+  IN_PREPARATION: { label: "Preparing", bg: "var(--am-t)", fg: "var(--am)", bd: "var(--am-b)" },
+  READY: { label: "Ready", bg: "#EAF2FB", fg: "#1D5FA8", bd: "#C3D9F0" },
+  SERVED: { label: "Served", bg: "var(--gr-t)", fg: "var(--gr)", bd: "var(--gr-b)" },
+};
 let socket; 
 
 async function fetchAndSetSiteName() {
@@ -414,6 +428,13 @@ export default {
         }
       });
     },
+    itemStatusLabel(state) {
+      return t(ITEM_STATUS[state || "QUEUED"]?.label || "Queued");
+    },
+    itemStatusStyle(state) {
+      const s = ITEM_STATUS[state || "QUEUED"] || ITEM_STATUS.QUEUED;
+      return { background: s.bg, color: s.fg, border: `1px solid ${s.bd}` };
+    },
     rotateCard(kot) {
       this.masonryLoading();
       kot.isRotated = !kot.isRotated;
@@ -478,7 +499,7 @@ export default {
         // between load and this click. The execution service rejects the
         // serve; surface it and remove the now-stale card instead of
         // leaving an orphaned "Serve"-able order on screen.
-        alert(error?.message || "This KOT has been cancelled and cannot be served.");
+        alert(error?.message || t("This KOT has been cancelled and cannot be served."));
         kot.showDiv = true;
         this.removeAllItemsFromLocalStorage(kot);
         this.masonryLoading();
@@ -507,7 +528,7 @@ export default {
           // Race condition: the KOT was cancelled between load and this
           // click. The backend rejects the serve; remove the now-stale
           // card instead of leaving an orphaned "Serve"-able order.
-          alert(error?.message || "This KOT has been cancelled and cannot be served.");
+          alert(error?.message || t("This KOT has been cancelled and cannot be served."));
           kot.showDiv = true;
           this.removeAllItemsFromLocalStorage(kot);
           this.masonryLoading();
@@ -528,7 +549,7 @@ export default {
         })
         .catch((error) => {
           console.error(error);
-          alert(error?.message || "Failed to resolve item disposition.");
+          alert(error?.message || t("Failed to resolve item disposition."));
         });
     },
     async orderDelayNotify(kot) {
@@ -614,9 +635,19 @@ export default {
       });
     },
     calculateQty(kotitem, qty, type, cancelled_qty) {
-      kotitem.qty = qty;
+      // quantity / cancelled_qty are Float fields on URY KOT Items (older
+      // payloads may still carry strings) and cancelled_qty is null/absent on rows that never recorded it, so coerce
+      // explicitly instead of relying on implicit JS arithmetic (-> NaN).
+      const toNum = (v) => {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const total = toNum(qty);
+      kotitem.qty = total;
       if (type == "Partially cancelled" || type == "Cancelled") {
-        kotitem.qty = qty - cancelled_qty;
+        // Round to the 9 decimal places the Float column stores, which
+        // removes binary subtraction residue (0.3 - 0.1) without cutting data.
+        kotitem.qty = Math.round((total - toNum(cancelled_qty)) * 1e9) / 1e9;
       }
     },
     removeAllItemsFromLocalStorage(kot) {
@@ -655,10 +686,12 @@ export default {
     // countdown — the KDS shows how long an order has been sitting, and
     // flips to red once that elapsed time reaches `kot_alert_time` minutes.
     calculateTimeRemaining(targetTime) {
+      if (!targetTime) return { totalMinutes: 0, label: "0:00" };
       const currentTime = new Date();
-      const [targetHours, targetMinutes, targetSeconds] = targetTime
+      const cleanTime = String(targetTime).split(".")[0];
+      const [targetHours, targetMinutes, targetSeconds] = cleanTime
         .split(":")
-        .map(Number);
+        .map((num) => Number(num) || 0);
       let targetDate = new Date(
         currentTime.getFullYear(),
         currentTime.getMonth(),
@@ -685,14 +718,15 @@ export default {
       const totalMinutes = Math.floor(elapsedMs / 60000);
       const hoursElapsed = Math.floor(totalMinutes / 60);
       const minutesElapsed = totalMinutes % 60;
+      const formattedMinutes = String(minutesElapsed).padStart(2, "0");
 
       // Once overdue, prefix with "+" so "overdue by" is unambiguous at a
       // glance from the plain elapsed reading below the alert threshold —
       // the existing red text colour reinforces this further.
-      const isOverdue = totalMinutes >= this.kot_alert_time;
+      const isOverdue = this.kot_alert_time && totalMinutes >= this.kot_alert_time;
       const label = isOverdue
-        ? `+${hoursElapsed} : ${minutesElapsed}`
-        : `${hoursElapsed} : ${minutesElapsed}`;
+        ? `+${hoursElapsed}:${formattedMinutes}`
+        : `${hoursElapsed}:${formattedMinutes}`;
 
       return { totalMinutes, label };
     },
@@ -711,6 +745,7 @@ export default {
         this.masonry = new Masonry(this.$el.querySelector(".grid"), {
           itemSelector: ".masonry-item",
           gutter: 28,
+          isOriginLeft: !isRTL,
 
           // Other Masonry options can be added here
         });
@@ -726,7 +761,7 @@ export default {
     },
     handleOnline() {
       this.isOnline = true;
-      this.setStatusMessage("You are online");
+      this.setStatusMessage(t("You are online"));
       this.hideStatusMessageAfterDelay();
       this.fetchKOT().then(() => {
         this.masonryLoading();
@@ -734,7 +769,7 @@ export default {
     },
     handleOffline() {
       this.isOnline = false;
-      this.setStatusMessage("You are Offline");
+      this.setStatusMessage(t("You are Offline"));
     },
     setStatusMessage(message) {
       this.statusMessage = message;
